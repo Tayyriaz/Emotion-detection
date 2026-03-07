@@ -9,29 +9,65 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import time
 import numpy as np
 from PIL import Image
 import torch
 from torchvision import transforms
 import timm
 import urllib.request
+import urllib.error
 
 
-def get_model_path(model_name):
+def get_model_path(model_name, max_retries=5, retry_delay=5):
     """
     Get path to pre-trained model file.
     
     Downloads model from GitHub if not already cached.
     Models are cached in ~/.hsemotion/ directory.
+    
+    Args:
+        model_name: Name of the model to download
+        max_retries: Maximum number of retry attempts (default: 5)
+        retry_delay: Initial delay between retries in seconds (default: 5)
     """
     model_file = model_name + '.pt'
     cache_dir = os.path.join(os.path.expanduser('~'), '.hsemotion')
     os.makedirs(cache_dir, exist_ok=True)
     fpath = os.path.join(cache_dir, model_file)
-    if not os.path.isfile(fpath):
-        url = 'https://github.com/HSE-asavchenko/face-emotion-recognition/blob/main/models/affectnet_emotions/' + model_file + '?raw=true'
-        print('Downloading', model_name, 'from', url)
-        urllib.request.urlretrieve(url, fpath)
+    
+    if os.path.isfile(fpath):
+        return fpath
+    
+    url = 'https://github.com/HSE-asavchenko/face-emotion-recognition/blob/main/models/affectnet_emotions/' + model_file + '?raw=true'
+    print(f'Downloading {model_name} from {url}')
+    
+    # Retry logic with exponential backoff
+    for attempt in range(max_retries):
+        try:
+            urllib.request.urlretrieve(url, fpath)
+            print(f'Successfully downloaded {model_name}')
+            return fpath
+        except urllib.error.HTTPError as e:
+            if e.code == 429:  # Too Many Requests
+                wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                if attempt < max_retries - 1:
+                    print(f'Rate limited (429). Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})')
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise Exception(f'Failed to download model after {max_retries} attempts: HTTP {e.code}')
+            else:
+                raise Exception(f'Failed to download model: HTTP {e.code}')
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait_time = retry_delay * (2 ** attempt)
+                print(f'Download failed: {e}. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})')
+                time.sleep(wait_time)
+                continue
+            else:
+                raise Exception(f'Failed to download model after {max_retries} attempts: {e}')
+    
     return fpath
 
 

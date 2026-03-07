@@ -106,6 +106,9 @@ def create_app() -> FastAPI:
                 f"❌ Failed to initialize emotion detection model: {exc}",
                 exc_info=True,
             )
+            logger.warning(
+                "⚠️ Model will be loaded on first request. This may cause a delay."
+            )
             # Don't crash startup - error will be caught on first request
 
         logger.info("🚀 Application startup complete")
