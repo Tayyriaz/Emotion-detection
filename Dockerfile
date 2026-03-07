@@ -16,6 +16,31 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download HSEmotion model during build to avoid rate limiting at runtime
+# If download fails, model will be downloaded on first request
+RUN mkdir -p /root/.hsemotion && \
+    python -c "import urllib.request; import time; import sys; \
+    url = 'https://github.com/HSE-asavchenko/face-emotion-recognition/blob/main/models/affectnet_emotions/enet_b0_8_best_afew.pt?raw=true'; \
+    fpath = '/root/.hsemotion/enet_b0_8_best_afew.pt'; \
+    max_retries = 10; retry_delay = 15; \
+    success = False; \
+    for attempt in range(max_retries): \
+        try: \
+            print(f'[BUILD] Downloading model (attempt {attempt + 1}/{max_retries})...'); \
+            urllib.request.urlretrieve(url, fpath); \
+            print('[BUILD] Model downloaded successfully'); \
+            success = True; \
+            break; \
+        except Exception as e: \
+            if attempt < max_retries - 1: \
+                wait = retry_delay * (2 ** min(attempt, 4)); \
+                print(f'[BUILD] Failed: {e}. Retrying in {wait}s...'); \
+                time.sleep(wait); \
+            else: \
+                print(f'[BUILD] Warning: Failed to download model. Will retry at runtime.'); \
+    if not success: \
+        print('[BUILD] Model will be downloaded on first request at runtime.')" || true
+
 # Copy application code
 COPY . .
 

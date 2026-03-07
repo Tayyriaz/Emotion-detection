@@ -19,7 +19,7 @@ import urllib.request
 import urllib.error
 
 
-def get_model_path(model_name, max_retries=5, retry_delay=5):
+def get_model_path(model_name, max_retries=10, retry_delay=15):
     """
     Get path to pre-trained model file.
     
