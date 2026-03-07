@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Emotion Detector - AI-Powered Facial Expression Analysis</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Upload a face image and get real-time emotion analysis with Action Units detection" />
+    <link rel="stylesheet" href="/static/css/image_emotion.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <section class="card">
+        <div class="card-inner">
+          <header class="header">
+            <div class="title-block">
+              <div class="title">
+                <span>Emotion Detector</span>
+              </div>
+              <p class="subtitle">
+                Upload a face image to analyze emotions and facial expressions
+              </p>
+            </div>
+          </header>
+
+          <div class="layout">
+            <!-- Left: upload + live status -->
+            <div>
+              <label class="upload-area" id="drop-zone">
+                <input
+                  type="file"
+                  id="file-input"
+                  accept="image/png,image/jpeg"
+                  aria-label="Upload face image"
+                />
+                <div class="upload-top">
+                  <div class="upload-left">
+                    <div class="upload-icon">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.7"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M12 4.5v15m0-15L7.5 9M12 4.5 16.5 9M4.5 15.75A4.5 4.5 0 0 1 9 11.25h6a4.5 4.5 0 0 1 4.5 4.5v1.125A2.625 2.625 0 0 1 16.875 19.5H7.125A2.625 2.625 0 0 1 4.5 17.625V15.75Z"
+                        />
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="upload-text-main">
+                        Drag & drop or click to choose a face image
+                      </div>
+                      <div class="upload-text-sub">
+                        High‑contrast, front‑facing portraits work best.
+                      </div>
+                    </div>
+                  </div>
+                  <button type="button" class="upload-cta" id="choose-btn">
+                    <span>Browse files</span>
+                  </button>
+                </div>
+                <div class="upload-hint">
+                  <span>JPG, PNG &middot; up to 8 MB</span>
+                </div>
+              </label>
+
+              <div class="preview-card" id="preview-card" style="display: none">
+                <div class="preview-thumb">
+                  <img id="preview-img" alt="Selected preview" />
+                </div>
+                <div class="preview-info">
+                  <div class="preview-name" id="preview-name"></div>
+                  <div class="preview-meta" id="preview-meta"></div>
+                  <div class="preview-status">
+                    Status:
+                    <span id="preview-status">Ready to analyze</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="controls">
+                <button type="button" class="primary-btn" id="analyze-btn" disabled>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  <span>Analyze Emotion</span>
+                </button>
+              </div>
+
+              <div class="error-banner" id="error-banner" role="alert" aria-live="polite"></div>
+            </div>
+
+            <!-- Right: results -->
+            <div>
+              <div class="results-card">
+                <div class="result-header">
+                  <div>
+                    <div class="result-main-label">Result</div>
+                    <div class="emotion-display">
+                      <div class="emotion-label" id="emotion-label">No result yet</div>
+                      <div class="emotion-chip" id="emotion-chip">
+                        Upload an image to get started
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="confidence-row">
+                  <div class="confidence-bar">
+                    <div class="confidence-fill" id="confidence-fill"></div>
+                  </div>
+                  <div class="confidence-value" id="confidence-value">0%</div>
+                </div>
+
+                <div class="au-section">
+                  <div class="au-list">
+                    <div class="au-list-header">
+                      <span>Facial Action Units</span>
+                      <span id="au-count-label">0 detected</span>
+                    </div>
+                    <div class="au-items" id="au-items">
+                      <div class="au-item">
+                        <span class="au-name">–</span>
+                        <span class="au-value">No data</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <script src="/static/js/image_emotion.js"></script>
+  </body>
+</html>

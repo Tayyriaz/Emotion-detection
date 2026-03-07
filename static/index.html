@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Advanced AI-powered emotion detection from images, video, and audio">
+    <title>EmotionAI - Advanced Emotion Detection Platform</title>
+    <link rel="stylesheet" href="/static/css/emotion_app.css?v=2.8" type="text/css">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar" role="navigation" aria-label="Main navigation">
+        <div class="navbar-container">
+            <div class="nav-brand">
+                <div class="logo-icon">🎭</div>
+                <span class="logo-text">EmotionAI</span>
+            </div>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="#features" class="nav-link">Features</a></li>
+                <li><a href="#demo" class="nav-link">Try Demo</a></li>
+                <li><a href="#about" class="nav-link">About</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-section" id="hero">
+        <div class="hero-container">
+            <div class="hero-content">
+                <h1 class="hero-title">
+                    <span class="gradient-text">AI-Powered</span> Emotion Detection
+                </h1>
+                <p class="hero-subtitle">
+                    Analyze emotions from images, live video, and audio using advanced machine learning.
+                    Get real-time insights with high accuracy.
+                </p>
+                <div class="hero-stats">
+                    <div class="stat-card">
+                        <div class="stat-value">99%</div>
+                        <div class="stat-label">Accuracy</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">3</div>
+                        <div class="stat-label">Input Types</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">&lt;1s</div>
+                        <div class="stat-label">Response Time</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Detection Methods Section -->
+        <section class="detection-methods-section" id="demo">
+            <div class="section-container">
+                <div class="section-header">
+                    <h2 class="section-title">Detection Methods</h2>
+                    <p class="section-subtitle">Choose your preferred input method</p>
+                </div>
+                
+                <div class="methods-grid">
+                    <button class="method-card active" data-tab="image" id="imageMethodBtn">
+                        <div class="method-icon">📷</div>
+                        <h3 class="method-title">Image Upload</h3>
+                        <p class="method-description">Upload an image to detect emotions</p>
+                    </button>
+                    
+                    <button class="method-card" data-tab="video" id="videoMethodBtn">
+                        <div class="method-icon">🎥</div>
+                        <h3 class="method-title">Live Webcam</h3>
+                        <p class="method-description">Real-time emotion detection from webcam</p>
+                    </button>
+                    
+                    <button class="method-card" data-tab="audio" id="audioMethodBtn">
+                        <div class="method-icon">🎤</div>
+                        <h3 class="method-title">Audio Analysis</h3>
+                        <p class="method-description">Analyze emotions from audio files</p>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Detection Content Section -->
+        <section class="detection-content-section" id="features">
+            <div class="section-container">
+                <!-- Image Tab -->
+                <div class="tab-content active" id="imageTab" role="tabpanel" aria-labelledby="imageMethodBtn">
+                    <div class="detection-card">
+                        <div class="detection-header">
+                            <h3 class="detection-title">Image Emotion Detection</h3>
+                            <p class="detection-description">Upload an image to detect emotions from facial expressions</p>
+                        </div>
+                        
+                        <div class="detection-body">
+                            <div class="upload-wrapper">
+                                <label for="imageFileInput" class="upload-area" id="imageUploadArea" role="button" tabindex="0" aria-label="Upload image">
+                                    <input type="file" id="imageFileInput" accept="image/*" style="display: none;" aria-label="Image file input">
+                                    <div id="imageDefaultContent" class="upload-content">
+                                        <div class="upload-icon-large">📷</div>
+                                        <p class="upload-text-primary">Drag & drop image here</p>
+                                        <p class="upload-text-secondary">or click to browse</p>
+                                        <p class="upload-formats">Supports: JPG, PNG, WebP</p>
+                                    </div>
+                                    <img id="imagePreview" class="image-preview" style="display: none;" alt="Uploaded image preview">
+                                </label>
+                            </div>
+
+                            <div class="result-wrapper">
+                                <div class="result-section" id="imageResult" style="display: none;">
+                                    <div class="result-card">
+                                        <div class="result-header">
+                                            <span class="result-label">Detected Emotion</span>
+                                            <span class="result-status" id="imageStatusText"></span>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="emotion-icon" id="imageEmotionIcon" role="img" aria-label="Emotion icon">😐</div>
+                                            <div class="emotion-label" id="imageEmotionLabel">Neutral</div>
+                                            <div class="confidence-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                                <div class="confidence-fill" id="imageConfidenceFill"></div>
+                                            </div>
+                                            <div class="confidence-text" id="imageConfidence">Confidence: 0%</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div id="imageEmptyState" class="empty-state">
+                                    <div class="empty-state-icon">📷</div>
+                                    <p class="empty-state-title">No analysis yet</p>
+                                    <p class="empty-state-hint">Upload an image to see emotion detection results</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Tab -->
+                <div class="tab-content" id="videoTab" role="tabpanel" aria-labelledby="videoMethodBtn" aria-hidden="true">
+                    <div class="detection-card">
+                        <div class="detection-header">
+                            <h3 class="detection-title">Live Video Emotion Detection</h3>
+                            <p class="detection-description">Detect emotions from your webcam in real-time</p>
+                        </div>
+                        
+                        <div class="detection-body">
+                            <!-- Left Side: Video Input Section -->
+                            <div class="video-wrapper">
+                                <div class="video-container">
+                                    <video id="videoStream" autoplay playsinline class="video-stream" style="display: none;" aria-label="Webcam video stream"></video>
+                                    <canvas id="videoCanvas" class="video-canvas"></canvas>
+                                    <div id="videoPlaceholder" class="video-placeholder">
+                                        <div class="upload-icon-large">🎥</div>
+                                        <p>Click "Start Camera" to begin</p>
+                                    </div>
+                                </div>
+                                
+                                <!-- Buttons moved here, below video input -->
+                                <div class="video-controls">
+                                    <button class="primary-btn" id="startCameraBtn" aria-label="Start camera">
+                                        <span class="btn-icon">📹</span>
+                                        <span>Start Camera</span>
+                                    </button>
+                                    <button class="primary-btn" id="stopCameraBtn" style="display: none;" aria-label="Stop camera">
+                                        <span class="btn-icon">⏹️</span>
+                                        <span>Stop Camera</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Right Side: Output Section -->
+                            <div class="result-wrapper">
+                                <div class="result-section" id="videoResult" style="display: none;">
+                                    <div class="result-card">
+                                        <div class="result-header">
+                                            <span class="result-label">Detected Emotion</span>
+                                            <span class="result-status" id="videoStatusText"></span>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="emotion-icon" id="videoEmotionIcon" role="img" aria-label="Emotion icon">😐</div>
+                                            <div class="emotion-label" id="videoEmotionLabel">Neutral</div>
+                                            <div class="confidence-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                                <div class="confidence-fill" id="videoConfidenceFill"></div>
+                                            </div>
+                                            <div class="confidence-text" id="videoConfidence">Confidence: 0%</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div id="videoEmptyState" class="empty-state">
+                                    <div class="empty-state-icon">🎥</div>
+                                    <p class="empty-state-title">No analysis yet</p>
+                                    <p class="empty-state-hint">Start your camera to see real-time emotion detection</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Audio Tab -->
+                <div class="tab-content" id="audioTab" role="tabpanel" aria-labelledby="audioMethodBtn" aria-hidden="true">
+                    <div class="detection-card">
+                        <div class="detection-header">
+                            <h3 class="detection-title">Audio Emotion Detection</h3>
+                            <p class="detection-description">Upload an audio file or record live from your microphone</p>
+                        </div>
+                        
+                        <div class="detection-body">
+                            <div class="upload-wrapper">
+                                <label for="audioFileInput" class="upload-area" id="audioUploadArea" role="button" tabindex="0" aria-label="Upload audio">
+                                    <input type="file" id="audioFileInput" accept="audio/*" style="display: none;" aria-label="Audio file input">
+                                    
+                                    <div id="audioDefaultContent" class="upload-content">
+                                        <div class="upload-icon-large">🎤</div>
+                                        <p class="upload-text-primary">Drag & drop audio file here</p>
+                                        <p class="upload-text-secondary">or click to browse</p>
+                                        <p class="upload-formats">Supports: WAV, MP3, WebM, OGG, M4A</p>
+                                    </div>
+                                    
+                                    <div class="audio-waves-container" id="audioWavesContainer" style="display: none;" aria-label="Recording animation">
+                                        <div class="audio-wave"></div>
+                                        <div class="audio-wave"></div>
+                                        <div class="audio-wave"></div>
+                                        <div class="audio-wave"></div>
+                                        <div class="audio-wave"></div>
+                                    </div>
+                                    
+                                    <div id="recordedAudioPreview" class="recorded-audio-preview" style="display: none;">
+                                        <div class="upload-icon-large">🎵</div>
+                                        <p class="upload-text-primary">Audio Recorded!</p>
+                                        <audio id="recordedAudioPlayer" controls aria-label="Recorded audio playback"></audio>
+                                        <div class="audio-controls-group">
+                                            <button class="primary-btn success-btn" id="uploadRecordedBtn" aria-label="Analyze recorded audio">
+                                                <span class="btn-icon">📤</span>
+                                                <span>Analyze</span>
+                                            </button>
+                                            <button class="secondary-btn" id="recordAgainBtn" aria-label="Record again">
+                                                <span class="btn-icon">🔄</span>
+                                                <span>Record Again</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="audio-controls-group">
+                                    <button class="primary-btn" id="audioRecordBtn" aria-label="Start recording audio">
+                                        <span class="btn-icon">🎤</span>
+                                        <span>Record Audio</span>
+                                    </button>
+                                </div>
+                                
+                                <div class="audio-status-container">
+                                    <p id="audioStatus" class="audio-status-text">Ready to upload or record</p>
+                                </div>
+                            </div>
+
+                            <!-- Right Side: Output Section -->
+                            <div class="result-wrapper">
+                                <div class="result-section" id="audioResult" style="display: none;">
+                                    <div class="result-card">
+                                        <div class="result-header">
+                                            <span class="result-label">Detected Emotion</span>
+                                            <span class="result-status" id="audioStatusText"></span>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="emotion-icon" id="audioEmotionIcon" role="img" aria-label="Emotion icon">😐</div>
+                                            <div class="emotion-label" id="audioEmotionLabel">Neutral</div>
+                                            <div class="confidence-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                                <div class="confidence-fill" id="audioConfidenceFill"></div>
+                                            </div>
+                                            <div class="confidence-text" id="audioConfidence">Confidence: 0%</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div id="audioEmptyState" class="empty-state">
+                                    <div class="empty-state-icon">🎵</div>
+                                    <p class="empty-state-title">No analysis yet</p>
+                                    <p class="empty-state-hint">Upload a file or record audio to see results</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- About Section -->
+        <section class="about-section" id="about">
+            <div class="section-container">
+                <div class="section-header">
+                    <h2 class="section-title">How It Works</h2>
+                    <p class="section-subtitle">Advanced AI technology for emotion recognition</p>
+                </div>
+                
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🧠</div>
+                        <h3 class="feature-title">Deep Learning</h3>
+                        <p class="feature-description">Powered by state-of-the-art neural networks trained on millions of facial expressions</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h3 class="feature-title">Real-Time Processing</h3>
+                        <p class="feature-description">Get instant results with sub-second response times for live video analysis</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">🎯</div>
+                        <h3 class="feature-title">High Accuracy</h3>
+                        <p class="feature-description">Detect 8 different emotions with confidence scores and bounding box visualization</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">🔒</div>
+                        <h3 class="feature-title">Privacy First</h3>
+                        <p class="feature-description">All processing happens locally or on secure servers. Your data stays private.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <div class="logo-icon">🎭</div>
+                    <span class="logo-text">EmotionAI</span>
+                </div>
+                <p class="footer-description">Advanced AI-powered emotion detection platform</p>
+            </div>
+            
+            <div class="footer-links">
+                <div class="footer-column">
+                    <h4 class="footer-title">Product</h4>
+                    <ul class="footer-list">
+                        <li><a href="#features" class="footer-link">Features</a></li>
+                        <li><a href="#demo" class="footer-link">Demo</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-column">
+                    <h4 class="footer-title">Technology</h4>
+                    <ul class="footer-list">
+                        <li><a href="#about" class="footer-link">How It Works</a></li>
+                        <li><span class="footer-link">HSEmotion Model</span></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer-bottom">
+            <p>&copy; 2026 EmotionAI. Built with advanced AI technology.</p>
+        </div>
+    </footer>
+
+    <!-- Error Message -->
+    <div class="error-message" id="errorMessage" role="alert" aria-live="assertive" style="display: none;"></div>
+
+    <!-- Scripts -->
+    <script src="/static/js/shared_utils.js"></script>
+    <script src="/static/js/image_emotion.js"></script>
+    <script src="/static/js/video_emotion.js"></script>
+    <script src="/static/js/audio_emotion.js"></script>
+    <script src="/static/js/unified_app.js"></script>
+    
+    <!-- Navigation & UI Scripts -->
+    <script>
+        // Navbar scroll effect
+        const navbar = document.querySelector('.navbar');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+        });
+        
+        // Mobile navigation toggle
+        const navToggle = document.getElementById('navToggle');
+        const navMenu = document.getElementById('navMenu');
+        
+        if (navToggle && navMenu) {
+            navToggle.addEventListener('click', () => {
+                const isExpanded = navToggle.getAttribute('aria-expanded') === 'true';
+                navToggle.setAttribute('aria-expanded', !isExpanded);
+                navMenu.classList.toggle('active');
+                navToggle.classList.toggle('active');
+            });
+            
+            // Close menu when clicking on a link
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.addEventListener('click', () => {
+                    navMenu.classList.remove('active');
+                    navToggle.classList.remove('active');
+                    navToggle.setAttribute('aria-expanded', 'false');
+                });
+            });
+        }
+        
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                const href = this.getAttribute('href');
+                if (href === '#') return;
+                
+                e.preventDefault();
+                const target = document.querySelector(href);
+                if (target) {
+                    const navHeight = 72;
+                    const offsetTop = target.offsetTop - navHeight;
+                    window.scrollTo({
+                        top: offsetTop,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+        
+        // Method cards click handler - handled by unified_app.js
+        // This is just for scrolling, tab switching is handled by unified_app.js
+    </script>
+</body>
+</html>
