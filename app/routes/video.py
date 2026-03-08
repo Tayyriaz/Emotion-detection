@@ -5,9 +5,11 @@ WebSocket endpoint for real-time emotion detection from webcam video stream.
 Processes frames continuously and sends emotion updates back to client.
 """
 
+import asyncio
 import base64
 import json
 import time
+from asyncio import TimeoutError as AsyncTimeoutError
 
 import cv2
 import numpy as np
@@ -46,9 +48,18 @@ async def video_emotion_websocket(websocket: WebSocket):
     
     Client sends base64-encoded image frames, server responds with emotion analysis.
     Optimized for low latency: processes frames efficiently, skips frames if queue is full.
+    
+    Render-specific optimizations:
+    - Handles connection timeouts gracefully
+    - Sends keepalive pings to prevent idle timeout
+    - Robust error handling for disconnections
     """
-    await websocket.accept()
-    logger.info("WebSocket connection established for video emotion detection")
+    try:
+        await websocket.accept()
+        logger.info("WebSocket connection established for video emotion detection")
+    except Exception as e:
+        logger.error(f"Failed to accept WebSocket connection: {e}")
+        return
     
     detector = None
     frame_count = 0
@@ -99,12 +110,27 @@ async def video_emotion_websocket(websocket: WebSocket):
                     break
                 last_ping_time = current_time
             
-            # Receive frame from client with timeout
+            # Receive frame from client with timeout handling
+            # Render may have connection timeouts, so we handle them gracefully
             try:
-                data = await websocket.receive_text()
-            except (WebSocketDisconnect, ConnectionError, RuntimeError):
-                logger.info("WebSocket disconnected during receive")
+                # Use asyncio.wait_for for timeout (60 seconds max wait)
+                # This prevents hanging if client stops sending frames
+                try:
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                except AsyncTimeoutError:
+                    # Send ping to keep connection alive if no data received
+                    logger.debug("No frame received in 60s, sending keepalive ping")
+                    if not await safe_send({"type": "ping"}):
+                        break
+                    last_ping_time = time.time()
+                    continue
+            except (WebSocketDisconnect, ConnectionError, RuntimeError) as e:
+                logger.info(f"WebSocket disconnected during receive: {e}")
                 break
+            except Exception as e:
+                logger.warning(f"Unexpected error receiving WebSocket message: {e}")
+                # Try to continue, might be recoverable
+                continue
             
             try:
                 message = json.loads(data)

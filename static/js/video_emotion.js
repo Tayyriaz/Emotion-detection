@@ -141,28 +141,48 @@ class VideoEmotionDetector {
         // Clear previous drawing
         this.clearCanvas();
         
+        // Use bboxCtx for bounding box canvas (overlay canvas)
+        const ctx = this.bboxCtx || this.ctx;
+        if (!ctx) return;
+        
         // Draw bounding box
-        this.ctx.strokeStyle = '#3b82f6';  // Blue color
-        this.ctx.lineWidth = 3;
-        this.ctx.setLineDash([]);
-        this.ctx.strokeRect(scaledX1, scaledY1, width, height);
+        ctx.strokeStyle = '#3b82f6';  // Blue color
+        ctx.lineWidth = 3;
+        ctx.setLineDash([]);
+        ctx.strokeRect(scaledX1, scaledY1, width, height);
         
         // Draw label background
         const labelText = `${emotion.charAt(0).toUpperCase() + emotion.slice(1)} (${(confidence * 100).toFixed(0)}%)`;
-        this.ctx.font = 'bold 14px Arial';
-        const textMetrics = this.ctx.measureText(labelText);
+        ctx.font = 'bold 14px Arial';
+        const textMetrics = ctx.measureText(labelText);
         const textWidth = textMetrics.width;
         const textHeight = 20;
         
         // Label background
-        this.ctx.fillStyle = 'rgba(59, 130, 246, 0.9)';
-        this.ctx.fillRect(scaledX1, scaledY1 - textHeight - 4, textWidth + 8, textHeight);
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.9)';
+        ctx.fillRect(scaledX1, scaledY1 - textHeight - 4, textWidth + 8, textHeight);
         
         // Label text
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.fillText(labelText, scaledX1 + 4, scaledY1 - 8);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(labelText, scaledX1 + 4, scaledY1 - 8);
         
         this.currentBbox = bbox;
+    }
+    
+    clearCanvas() {
+        // Clear bounding box canvas
+        if (this.bboxCtx && this.bboxCanvas) {
+            this.bboxCtx.clearRect(0, 0, this.bboxCanvas.width, this.bboxCanvas.height);
+        }
+        // Also clear main canvas if it exists
+        if (this.ctx && this.canvas) {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+    }
+    
+    clearBoundingBox() {
+        this.currentBbox = null;
+        this.clearCanvas();
     }
     
     setupEventListeners() {
@@ -244,8 +264,27 @@ class VideoEmotionDetector {
             // Update canvas size
             this.updateCanvasSize();
             
-            // Connect WebSocket
-            await this.connectWebSocket();
+            // Connect WebSocket (with retry on failure)
+            try {
+                await this.connectWebSocket();
+            } catch (error) {
+                console.error('Failed to connect WebSocket:', error);
+                this.showError('Failed to connect to server. Please refresh and try again.');
+                // Stop camera if WebSocket fails
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
+                    this.stream = null;
+                }
+                if (this.video) {
+                    this.video.srcObject = null;
+                }
+                throw error; // Re-throw to prevent starting frame capture
+            }
+            
+            // Verify WebSocket is connected before starting frame capture
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                throw new Error('WebSocket not connected');
+            }
             
             // Start frame capture
             this.isRunning = true;
@@ -257,12 +296,32 @@ class VideoEmotionDetector {
                 this.stopBtn.disabled = false;
                 this.stopBtn.style.display = 'block';
             }
+            
+            // Show result section immediately and keep it visible
             if (this.videoResult) {
                 this.videoResult.style.display = 'block';
             }
             if (this.videoEmptyState) {
                 this.videoEmptyState.style.display = 'none';
             }
+            
+            // Initialize result display with "waiting" state
+            if (this.videoEmotionIcon) {
+                this.videoEmotionIcon.textContent = '⏳';
+            }
+            if (this.videoEmotionLabel) {
+                this.videoEmotionLabel.textContent = 'Analyzing...';
+            }
+            if (this.videoConfidenceFill) {
+                this.videoConfidenceFill.style.width = '0%';
+            }
+            if (this.videoConfidence) {
+                this.videoConfidence.textContent = 'Confidence: 0%';
+            }
+            if (this.videoStatusText) {
+                this.videoStatusText.textContent = 'Waiting...';
+            }
+            
             this.hideError();
             
             // Capture frames at ~10 FPS (every 100ms)
@@ -280,19 +339,41 @@ class VideoEmotionDetector {
     
     async connectWebSocket() {
         return new Promise((resolve, reject) => {
+            // Ensure WSS protocol on HTTPS (required for Render)
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/video/emotion`;
+            
+            console.log('Connecting WebSocket to:', wsUrl);
+            
+            // Connection timeout (10 seconds)
+            const connectionTimeout = setTimeout(() => {
+                if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+                    console.error('WebSocket connection timeout');
+                    this.ws.close();
+                    reject(new Error('Connection timeout. Please check your internet connection.'));
+                }
+            }, 10000);
             
             this.ws = new WebSocket(wsUrl);
             
             this.ws.onopen = () => {
-                console.log('WebSocket connected');
+                console.log('✅ WebSocket connected successfully');
+                clearTimeout(connectionTimeout);
                 resolve();
             };
             
             this.ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
+                    
+                    // Handle ping/pong for keepalive
+                    if (data.type === 'ping') {
+                        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                            this.ws.send(JSON.stringify({ type: 'pong' }));
+                        }
+                        return;
+                    }
+                    
                     this.handleMessage(data);
                 } catch (error) {
                     console.error('Failed to parse WebSocket message:', error);
@@ -300,19 +381,36 @@ class VideoEmotionDetector {
             };
             
             this.ws.onerror = (error) => {
-                console.error('WebSocket error:', error);
-                this.showError('Connection error. Please try again.');
+                console.error('❌ WebSocket error:', error);
+                clearTimeout(connectionTimeout);
+                
+                // More specific error messages
+                const errorMsg = 'WebSocket connection failed. ';
+                if (window.location.protocol === 'https:' && wsUrl.startsWith('ws://')) {
+                    this.showError(errorMsg + 'HTTPS requires WSS protocol.');
+                } else {
+                    this.showError(errorMsg + 'Please check your connection and try again.');
+                }
                 reject(error);
             };
             
-            this.ws.onclose = () => {
-                console.log('WebSocket disconnected');
+            this.ws.onclose = (event) => {
+                console.log('WebSocket disconnected:', {
+                    code: event.code,
+                    reason: event.reason,
+                    wasClean: event.wasClean
+                });
+                clearTimeout(connectionTimeout);
                 
-                if (this.isRunning) {
-                    // Try to reconnect after 2 seconds
+                // Only auto-reconnect if it was an unexpected close and we're still running
+                if (this.isRunning && event.code !== 1000) {
+                    console.log('Attempting to reconnect in 2 seconds...');
                     setTimeout(() => {
-                        if (this.isRunning) {
-                            this.connectWebSocket().catch(console.error);
+                        if (this.isRunning && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
+                            this.connectWebSocket().catch((err) => {
+                                console.error('Reconnection failed:', err);
+                                this.showError('Failed to reconnect. Please refresh the page.');
+                            });
                         }
                     }, 2000);
                 }
@@ -326,15 +424,31 @@ class VideoEmotionDetector {
         }
         
         // Create canvas to capture frame
+        // Reduce size for faster processing on slow CPU (max 320x240)
+        const maxWidth = 320;
+        const maxHeight = 240;
+        const videoWidth = this.video.videoWidth;
+        const videoHeight = this.video.videoHeight;
+        
+        // Calculate scaled dimensions maintaining aspect ratio
+        let canvasWidth = videoWidth;
+        let canvasHeight = videoHeight;
+        if (videoWidth > maxWidth || videoHeight > maxHeight) {
+            const scale = Math.min(maxWidth / videoWidth, maxHeight / videoHeight);
+            canvasWidth = Math.floor(videoWidth * scale);
+            canvasHeight = Math.floor(videoHeight * scale);
+        }
+        
         const canvas = document.createElement('canvas');
-        canvas.width = this.video.videoWidth;
-        canvas.height = this.video.videoHeight;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
         
         const ctx = canvas.getContext('2d');
-        ctx.drawImage(this.video, 0, 0);
+        ctx.drawImage(this.video, 0, 0, canvasWidth, canvasHeight);
         
-        // Convert to base64 JPEG (quality 0.8 for smaller size)
-        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+        // Convert to base64 JPEG (quality 0.6 for faster processing and smaller size)
+        // Lower quality + smaller size = faster transmission and processing on slow CPU
+        const imageData = canvas.toDataURL('image/jpeg', 0.6);
         
         // Send to server
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -352,6 +466,14 @@ class VideoEmotionDetector {
         }
         
         if (data.type === 'emotion') {
+            // Ensure result section is always visible when receiving updates
+            if (this.videoResult) {
+                this.videoResult.style.display = 'block';
+            }
+            if (this.videoEmptyState) {
+                this.videoEmptyState.style.display = 'none';
+            }
+            
             if (data.success && data.face_detected) {
                 // Update emotion display
                 const emotion = data.emotion || 'neutral';
@@ -359,35 +481,79 @@ class VideoEmotionDetector {
                 const bbox = data.face_bbox;  // [x1, y1, x2, y2]
                 
                 // Use shared utility to display emotion result
-                this.Utils.displayEmotionResult(data, {
-                    icon: this.videoEmotionIcon,
-                    label: this.videoEmotionLabel,
-                    confidenceFill: this.videoConfidenceFill,
-                    confidence: this.videoConfidence,
-                    statusText: this.videoStatusText,
-                    result: this.videoResult,
-                    emptyState: this.videoEmptyState
-                });
+                if (this.Utils && this.Utils.displayEmotionResult) {
+                    this.Utils.displayEmotionResult(data, {
+                        icon: this.videoEmotionIcon,
+                        label: this.videoEmotionLabel,
+                        confidenceFill: this.videoConfidenceFill,
+                        confidence: this.videoConfidence,
+                        statusText: this.videoStatusText,
+                        result: this.videoResult,
+                        emptyState: this.videoEmptyState
+                    });
+                } else {
+                    // Fallback if SharedUtils not available
+                    if (this.videoEmotionIcon) {
+                        this.videoEmotionIcon.textContent = this.Utils.EMOTION_EMOJIS[emotion] || '😐';
+                    }
+                    if (this.videoEmotionLabel) {
+                        this.videoEmotionLabel.textContent = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+                    }
+                    if (this.videoConfidenceFill) {
+                        this.videoConfidenceFill.style.width = `${(confidence * 100)}%`;
+                    }
+                    if (this.videoConfidence) {
+                        this.videoConfidence.textContent = `Confidence: ${(confidence * 100).toFixed(1)}%`;
+                    }
+                    if (this.videoStatusText) {
+                        this.videoStatusText.textContent = '✓ Detected';
+                    }
+                }
                 
                 // Draw bounding box if available
                 if (bbox && Array.isArray(bbox) && bbox.length === 4) {
+                    this.currentBbox = bbox;  // Store for redraw on resize
                     this.drawBoundingBox(bbox, emotion, confidence);
                 } else {
+                    this.currentBbox = null;
                     this.clearBoundingBox();
                 }
                 
-                // Animate icon
-                this.videoEmotionIcon.style.animation = 'none';
-                setTimeout(() => {
-                    this.videoEmotionIcon.style.animation = 'bounceIn 0.3s ease';
-                }, 10);
+                // Animate icon (only if element exists)
+                if (this.videoEmotionIcon) {
+                    this.videoEmotionIcon.style.animation = 'none';
+                    setTimeout(() => {
+                        if (this.videoEmotionIcon) {
+                            this.videoEmotionIcon.style.animation = 'bounceIn 0.3s ease';
+                        }
+                    }, 10);
+                }
             } else {
-                // No face detected
-                this.videoEmotionIcon.textContent = '😐';
-                this.videoEmotionLabel.textContent = 'No Face';
-                this.videoConfidenceFill.style.width = '0%';
-                this.videoConfidence.textContent = '0%';
-                this.videoStatus.textContent = 'Waiting for face...';
+                // No face detected - show result but with "no face" message
+                if (this.videoEmotionIcon) {
+                    this.videoEmotionIcon.textContent = '😐';
+                }
+                if (this.videoEmotionLabel) {
+                    this.videoEmotionLabel.textContent = 'No Face Detected';
+                }
+                if (this.videoConfidenceFill) {
+                    this.videoConfidenceFill.style.width = '0%';
+                }
+                if (this.videoConfidence) {
+                    this.videoConfidence.textContent = 'Confidence: 0%';
+                }
+                if (this.videoStatusText) {
+                    this.videoStatusText.textContent = 'Waiting for face...';
+                }
+                
+                // Keep result section visible but show "no face" state
+                if (this.videoResult) {
+                    this.videoResult.style.display = 'block';
+                }
+                if (this.videoEmptyState) {
+                    this.videoEmptyState.style.display = 'none';
+                }
+                
                 this.clearBoundingBox();
             }
         }
