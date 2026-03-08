@@ -23,15 +23,28 @@ def get_model_path(model_name, max_retries=10, retry_delay=15):
     """
     Get path to pre-trained model file.
     
-    Downloads model from GitHub if not already cached.
-    Models are cached in ~/.hsemotion/ directory.
+    Checks in this order:
+    1. Local models/ directory (included in repo/Docker image)
+    2. User cache directory (~/.hsemotion/)
+    3. Downloads from GitHub if not found
     
     Args:
         model_name: Name of the model to download
-        max_retries: Maximum number of retry attempts (default: 5)
-        retry_delay: Initial delay between retries in seconds (default: 5)
+        max_retries: Maximum number of retry attempts (default: 10)
+        retry_delay: Initial delay between retries in seconds (default: 15)
     """
     model_file = model_name + '.pt'
+    
+    # First, check local models directory (included in Docker image)
+    # Get project root: app/services/models/hsemotion -> ../../../../ (project root)
+    current_file = os.path.abspath(__file__)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file)))))
+    local_model_path = os.path.join(project_root, 'models', model_file)
+    if os.path.isfile(local_model_path):
+        print(f'Using local model from: {local_model_path}')
+        return local_model_path
+    
+    # Second, check user cache directory
     cache_dir = os.path.join(os.path.expanduser('~'), '.hsemotion')
     os.makedirs(cache_dir, exist_ok=True)
     fpath = os.path.join(cache_dir, model_file)
