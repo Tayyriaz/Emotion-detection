@@ -18,5 +18,9 @@ services:
         value: "8"
       - key: TORCH_NUM_THREADS
         value: "2"  # Optimize for limited CPU on Starter plan
+      - key: VIDEO_FRAME_SKIP
+        value: "10"  # Process every 10th frame (reduces load on slow CPU)
+      - key: VIDEO_MIN_CONFIDENCE_DELTA
+        value: "0.15"  # Only send updates on significant emotion changes
     healthCheckPath: /health
     autoDeploy: true

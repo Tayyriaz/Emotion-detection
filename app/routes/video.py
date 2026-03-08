@@ -54,11 +54,35 @@ async def video_emotion_websocket(websocket: WebSocket):
     frame_count = 0
     last_emotion = None
     last_confidence = 0.0
+    last_ping_time = time.time()
+    
+    def is_connected():
+        """Check if WebSocket is still connected."""
+        try:
+            # Check WebSocket state (1 = CONNECTED)
+            return websocket.client_state.value == 1
+        except (AttributeError, ValueError):
+            # If we can't check state, assume connected (will fail on send if not)
+            return True
+    
+    async def safe_send(data):
+        """Safely send data, handling disconnections gracefully."""
+        if not is_connected():
+            return False
+        try:
+            await websocket.send_json(data)
+            return True
+        except (WebSocketDisconnect, RuntimeError, ConnectionError) as e:
+            logger.debug(f"WebSocket send failed (client disconnected): {e}")
+            return False
+        except Exception as e:
+            logger.error(f"WebSocket send error: {e}")
+            return False
     
     try:
         # Initialize detector (singleton, loaded once)
         if not HSEmotionDetector.is_available():
-            await websocket.send_json({
+            await safe_send({
                 "error": "HSEmotion library not available",
                 "type": "error"
             })
@@ -68,15 +92,27 @@ async def video_emotion_websocket(websocket: WebSocket):
         
         # Process frames continuously
         while True:
-            # Receive frame from client
-            data = await websocket.receive_text()
+            # Check connection and send keepalive ping every 30 seconds
+            current_time = time.time()
+            if current_time - last_ping_time > 30:
+                if not await safe_send({"type": "ping"}):
+                    break
+                last_ping_time = current_time
+            
+            # Receive frame from client with timeout
+            try:
+                data = await websocket.receive_text()
+            except (WebSocketDisconnect, ConnectionError, RuntimeError):
+                logger.info("WebSocket disconnected during receive")
+                break
             
             try:
                 message = json.loads(data)
                 
                 # Handle control messages
                 if message.get("type") == "ping":
-                    await websocket.send_json({"type": "pong"})
+                    await safe_send({"type": "pong"})
+                    last_ping_time = time.time()
                     continue
                 
                 if message.get("type") == "stop":
@@ -123,7 +159,7 @@ async def video_emotion_websocket(websocket: WebSocket):
                         if face_bbox and isinstance(face_bbox, tuple):
                             face_bbox = [int(coord) for coord in face_bbox]
                         
-                        await websocket.send_json({
+                        sent = await safe_send({
                             "type": "emotion",
                             "success": True,
                             "emotion": emotion,
@@ -133,16 +169,20 @@ async def video_emotion_websocket(websocket: WebSocket):
                             "face_bbox": face_bbox,  # [x1, y1, x2, y2] format (list of ints)
                             "inference_time_ms": round(inference_time, 1),
                         })
+                        if not sent:
+                            break
                 else:
                     # No face detected
                     if last_emotion is not None:
-                        await websocket.send_json({
+                        sent = await safe_send({
                             "type": "emotion",
                             "success": False,
                             "emotion": "neutral",
                             "confidence": 0.0,
                             "face_detected": False,
                         })
+                        if not sent:
+                            break
                         last_emotion = None
                 
             except ValueError as e:
@@ -153,10 +193,11 @@ async def video_emotion_websocket(websocket: WebSocket):
                 continue
             except Exception as e:
                 logger.error(f"Frame processing error: {e}", exc_info=True)
-                await websocket.send_json({
+                if not await safe_send({
                     "type": "error",
                     "message": str(e)
-                })
+                }):
+                    break
                 continue
                 
     except WebSocketDisconnect:
