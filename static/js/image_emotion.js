@@ -216,24 +216,28 @@
         
         try {
             // Show loading state
-            if (typeof SharedUtils !== 'undefined' && SharedUtils.showLoading) {
-                SharedUtils.showLoading({
-                    status: null,
-                    result: imageResult,
-                    emptyState: imageEmptyState
-                }, 'Analyzing...');
-            } else {
-                // Fallback loading state
-                if (imageResult) {
-                    imageResult.style.display = 'block';
-                }
-                if (imageEmptyState) {
-                    imageEmptyState.style.display = 'none';
-                }
+            if (imageEmptyState) {
+                imageEmptyState.style.display = 'none';
             }
             
             if (imageResult) {
                 imageResult.style.display = 'block';
+                // Show loading message in result section
+                if (imageEmotionIcon) {
+                    imageEmotionIcon.textContent = '⏳';
+                }
+                if (imageEmotionLabel) {
+                    imageEmotionLabel.textContent = 'Analyzing...';
+                }
+                if (imageConfidenceFill) {
+                    imageConfidenceFill.style.width = '0%';
+                }
+                if (imageConfidence) {
+                    imageConfidence.textContent = 'Please wait...';
+                }
+                if (imageStatusText) {
+                    imageStatusText.textContent = 'Processing';
+                }
             }
             
             const formData = new FormData();
@@ -280,20 +284,35 @@
             } else {
                 // Fallback result display
                 console.log('SharedUtils not available, using fallback display');
+                const emotion = data.emotion || 'neutral';
+                const confidence = (data.confidence || 0) * 100;
+                
                 if (imageEmotionIcon) {
-                    imageEmotionIcon.textContent = Utils.EMOTION_EMOJIS[data.emotion] || '😐';
+                    imageEmotionIcon.textContent = Utils.EMOTION_EMOJIS[emotion] || '😐';
                 }
                 if (imageEmotionLabel) {
-                    imageEmotionLabel.textContent = data.emotion.charAt(0).toUpperCase() + data.emotion.slice(1);
+                    imageEmotionLabel.textContent = emotion.charAt(0).toUpperCase() + emotion.slice(1);
                 }
                 if (imageConfidenceFill) {
-                    imageConfidenceFill.style.width = `${(data.confidence * 100)}%`;
+                    imageConfidenceFill.style.width = `${confidence}%`;
                 }
                 if (imageConfidence) {
-                    imageConfidence.textContent = `Confidence: ${(data.confidence * 100).toFixed(1)}%`;
+                    imageConfidence.textContent = `Confidence: ${confidence.toFixed(1)}%`;
                 }
+                if (imageStatusText) {
+                    imageStatusText.textContent = '✓ Analyzed';
+                }
+                
+                // Show result and hide empty state
                 if (imageResult) {
                     imageResult.style.display = 'block';
+                    // Scroll result into view smoothly
+                    setTimeout(() => {
+                        imageResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }, 100);
+                }
+                if (imageEmptyState) {
+                    imageEmptyState.style.display = 'none';
                 }
             }
             

@@ -100,6 +100,10 @@ const SharedUtils = {
         // Show result section
         if (elements.result) {
             elements.result.style.display = 'block';
+            // Scroll result into view smoothly
+            setTimeout(() => {
+                elements.result.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
         }
 
         // Hide empty state if exists
