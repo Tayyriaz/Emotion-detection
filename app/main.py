@@ -46,13 +46,17 @@ def create_app() -> FastAPI:
     # Request tracking middleware (adds request IDs, logs, metrics)
     app.add_middleware(RequestTrackingMiddleware)
 
-    # CORS configuration – keep permissive for now; tighten in config later.
+    # CORS configuration
+    # For production: Set CORS_ORIGINS environment variable with specific domains
+    # Example: CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+    cors_origins = settings.CORS_ORIGINS if settings.CORS_ORIGINS else ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
     )
 
     # Routers
@@ -87,14 +91,21 @@ def create_app() -> FastAPI:
             detector = HSEmotionDetector.instance()
             logger.info("✅ HSEmotion model loaded successfully")
             
-            # Optional warmup: run dummy inference to initialize PyTorch/TFLite
+            # Optional warmup: run dummy inference to initialize PyTorch
+            # This pre-compiles operations and loads weights into memory
             if settings.MODEL_WARMUP:
                 import numpy as np
-                dummy_image = np.zeros((100, 100, 3), dtype=np.uint8)
+                import cv2
+                # Create a more realistic dummy image (with a simple face-like pattern)
+                dummy_image = np.ones((224, 224, 3), dtype=np.uint8) * 128
+                # Add some structure to help with warmup
+                cv2.rectangle(dummy_image, (50, 50), (174, 174), (200, 200, 200), -1)
                 try:
+                    # Run warmup inference (will fail face detection but initializes model)
                     _ = detector.analyze_image(dummy_image)
                     logger.info("✅ Model warmup completed (ready for requests)")
                 except Exception as warmup_exc:
+                    # Warmup failure is non-critical - model will work on first real request
                     logger.warning(
                         f"⚠️ Model warmup failed (non-critical): {warmup_exc}"
                     )
