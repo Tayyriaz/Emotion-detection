@@ -18,6 +18,11 @@ import timm
 import urllib.request
 import urllib.error
 
+# Optimize PyTorch for CPU performance on limited resources
+# Use 2 threads for better balance on shared CPU (Starter plan)
+num_threads = int(os.getenv('TORCH_NUM_THREADS', '2'))
+torch.set_num_threads(num_threads)
+
 
 def get_model_path(model_name, max_retries=10, retry_delay=15):
     """
@@ -141,6 +146,7 @@ class HSEmotionRecognizer:
         model.classifier = torch.nn.Identity()
         model = model.to(device)
         self.model = model.eval()
+        
         print(path, self.test_transforms)
     
     def get_probab(self, features):
@@ -152,7 +158,9 @@ class HSEmotionRecognizer:
         """Extract feature embeddings from face image."""
         img_tensor = self.test_transforms(Image.fromarray(face_img))
         img_tensor.unsqueeze_(0)
-        features = self.model(img_tensor.to(self.device))
+        # Use inference_mode for better performance (no gradient tracking)
+        with torch.inference_mode():
+            features = self.model(img_tensor.to(self.device))
         features = features.data.cpu().numpy()
         return features
         

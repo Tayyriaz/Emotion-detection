@@ -16,5 +16,7 @@ services:
         value: INFO
       - key: MAX_IMAGE_SIZE_MB
         value: "8"
+      - key: TORCH_NUM_THREADS
+        value: "2"  # Optimize for limited CPU on Starter plan
     healthCheckPath: /health
     autoDeploy: true
