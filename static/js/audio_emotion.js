@@ -175,7 +175,23 @@
     
     async function startRecording() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (error) {
+                // Handle permission errors specifically
+                if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                    throw new Error('Microphone permission denied. Please allow microphone access in your browser settings and refresh the page.');
+                } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+                    throw new Error('No microphone found. Please connect a microphone and try again.');
+                } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+                    throw new Error('Microphone is already in use by another application. Please close other applications using the microphone.');
+                } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
+                    throw new Error('Microphone does not support the required settings. Trying with default settings...');
+                } else {
+                    throw new Error(`Microphone access failed: ${error.message || 'Unknown error'}`);
+                }
+            }
             mediaRecorder = new MediaRecorder(stream, {
                 mimeType: 'audio/webm;codecs=opus'
             });

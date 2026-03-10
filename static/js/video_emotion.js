@@ -22,12 +22,17 @@ class VideoEmotionDetector {
         this.videoConfidence = document.getElementById('videoConfidence');
         this.videoStatusText = document.getElementById('videoStatusText');
         this.errorMessage = document.getElementById('errorMessage');
+        this.videoHistogramContainer = document.getElementById('videoHistogramContainer');
+        this.videoStackedHistogram = document.getElementById('videoStackedHistogram');
+        this.showLandmarksToggle = document.getElementById('showLandmarksToggle');
         
         console.log('Video elements found:', {
             video: !!this.video,
             canvas: !!this.canvas,
             startBtn: !!this.startBtn,
-            stopBtn: !!this.stopBtn
+            stopBtn: !!this.stopBtn,
+            histogramContainer: !!this.videoHistogramContainer,
+            landmarksToggle: !!this.showLandmarksToggle
         });
         
         this.stream = null;
@@ -35,7 +40,15 @@ class VideoEmotionDetector {
         this.isRunning = false;
         this.frameInterval = null;
         this.currentBbox = null;  // Current bounding box
+        this.currentEmotions = {};  // Current emotion distribution
+        this.showLandmarks = false;  // Facial landmarks overlay flag
         this.ctx = null;
+        
+        // Smoothing buffers for stable video classification
+        this.emotionHistory = [];  // Last N emotion predictions
+        this.confidenceHistory = [];  // Last N confidence scores
+        this.emotionsHistory = [];  // Last N emotion distributions
+        this.maxHistorySize = 5;  // Keep last 5 predictions for smoothing
         
         // Use shared utilities
         this.Utils = typeof SharedUtils !== 'undefined' ? SharedUtils : {
@@ -52,6 +65,23 @@ class VideoEmotionDetector {
         // Setup canvas context
         if (this.canvas) {
             this.ctx = this.canvas.getContext('2d');
+        }
+        
+        // Setup landmarks toggle listener
+        if (this.showLandmarksToggle) {
+            this.showLandmarksToggle.addEventListener('change', (e) => {
+                this.showLandmarks = e.target.checked;
+                if (this.currentBbox && this.showLandmarks) {
+                    this.drawFacialLandmarks(this.currentBbox);
+                } else {
+                    this.clearCanvas();
+                    if (this.currentBbox) {
+                        const emotion = this.videoEmotionLabel ? this.videoEmotionLabel.textContent.toLowerCase() : 'neutral';
+                        const confidence = parseFloat(this.videoConfidence ? this.videoConfidence.textContent.replace('Confidence: ', '').replace('%', '') : '0') / 100;
+                        this.drawBoundingBox(this.currentBbox, emotion, confidence);
+                    }
+                }
+            });
         }
         
         this.setupEventListeners();
@@ -151,6 +181,11 @@ class VideoEmotionDetector {
         ctx.setLineDash([]);
         ctx.strokeRect(scaledX1, scaledY1, width, height);
         
+        // Draw facial landmarks if enabled
+        if (this.showLandmarks) {
+            this.drawFacialLandmarks(bbox, scaleX, scaleY);
+        }
+        
         // Draw label background
         const labelText = `${emotion.charAt(0).toUpperCase() + emotion.slice(1)} (${(confidence * 100).toFixed(0)}%)`;
         ctx.font = 'bold 14px Arial';
@@ -167,6 +202,183 @@ class VideoEmotionDetector {
         ctx.fillText(labelText, scaledX1 + 4, scaledY1 - 8);
         
         this.currentBbox = bbox;
+    }
+    
+    drawFacialLandmarks(bbox, scaleX, scaleY) {
+        if (!this.bboxCtx || !bbox || bbox.length !== 4) return;
+        
+        const ctx = this.bboxCtx || this.ctx;
+        if (!ctx) return;
+        
+        // Get video dimensions
+        const videoRect = this.video.getBoundingClientRect();
+        const videoWidth = this.video.videoWidth;
+        const videoHeight = this.video.videoHeight;
+        
+        if (videoWidth === 0 || videoHeight === 0) return;
+        
+        // Use provided scale factors or calculate
+        if (!scaleX || !scaleY) {
+            scaleX = videoRect.width / videoWidth;
+            scaleY = videoRect.height / videoHeight;
+        }
+        
+        const [x1, y1, x2, y2] = bbox;
+        const width = x2 - x1;
+        const height = y2 - y1;
+        
+        // Scale coordinates
+        const scaledX1 = x1 * scaleX;
+        const scaledY1 = y1 * scaleY;
+        const scaledWidth = width * scaleX;
+        const scaledHeight = height * scaleY;
+        
+        // Estimate facial landmark positions (68-point model approximation)
+        // These are estimated positions based on face bounding box
+        // In production, use dlib/mediapipe for accurate landmarks
+        const landmarks = this.estimateFacialLandmarks(scaledX1, scaledY1, scaledWidth, scaledHeight);
+        
+        // Draw landmarks
+        ctx.fillStyle = '#10b981';  // Green color for landmarks
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 2;
+        
+        landmarks.forEach((point, index) => {
+            const [x, y] = point;
+            
+            // Draw point
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Draw connections for key facial features
+            if (index < landmarks.length - 1) {
+                const nextPoint = landmarks[index + 1];
+                // Only draw connections for certain landmark groups
+                if (this.shouldConnectLandmarks(index, landmarks.length)) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(nextPoint[0], nextPoint[1]);
+                    ctx.stroke();
+                }
+            }
+        });
+    }
+    
+    estimateFacialLandmarks(x, y, width, height) {
+        // Estimate 68 facial landmarks based on bounding box
+        // This is a simplified estimation - for production, use dlib/mediapipe
+        const landmarks = [];
+        const centerX = x + width / 2;
+        const centerY = y + height / 2;
+        
+        // Face outline (17 points)
+        for (let i = 0; i < 17; i++) {
+            const angle = (Math.PI * i) / 16;
+            const radiusX = width / 2;
+            const radiusY = height / 2;
+            landmarks.push([
+                centerX + radiusX * Math.cos(angle),
+                y + radiusY * (0.3 + 0.7 * Math.sin(angle))
+            ]);
+        }
+        
+        // Right eyebrow (5 points)
+        for (let i = 0; i < 5; i++) {
+            landmarks.push([
+                x + width * (0.25 + i * 0.1),
+                y + height * 0.25
+            ]);
+        }
+        
+        // Left eyebrow (5 points)
+        for (let i = 0; i < 5; i++) {
+            landmarks.push([
+                x + width * (0.45 + i * 0.1),
+                y + height * 0.25
+            ]);
+        }
+        
+        // Nose (9 points)
+        for (let i = 0; i < 3; i++) {
+            landmarks.push([
+                centerX - width * 0.05 + i * width * 0.05,
+                y + height * 0.4
+            ]);
+        }
+        for (let i = 0; i < 3; i++) {
+            landmarks.push([
+                centerX - width * 0.05 + i * width * 0.05,
+                y + height * 0.5
+            ]);
+        }
+        for (let i = 0; i < 3; i++) {
+            landmarks.push([
+                centerX - width * 0.05 + i * width * 0.05,
+                y + height * 0.6
+            ]);
+        }
+        
+        // Right eye (6 points)
+        const rightEyeX = x + width * 0.3;
+        const rightEyeY = y + height * 0.35;
+        const eyeWidth = width * 0.15;
+        const eyeHeight = height * 0.1;
+        for (let i = 0; i < 6; i++) {
+            const angle = (2 * Math.PI * i) / 6;
+            landmarks.push([
+                rightEyeX + eyeWidth / 2 * Math.cos(angle),
+                rightEyeY + eyeHeight / 2 * Math.sin(angle)
+            ]);
+        }
+        
+        // Left eye (6 points)
+        const leftEyeX = x + width * 0.7;
+        const leftEyeY = y + height * 0.35;
+        for (let i = 0; i < 6; i++) {
+            const angle = (2 * Math.PI * i) / 6;
+            landmarks.push([
+                leftEyeX + eyeWidth / 2 * Math.cos(angle),
+                leftEyeY + eyeHeight / 2 * Math.sin(angle)
+            ]);
+        }
+        
+        // Mouth (20 points)
+        const mouthX = centerX;
+        const mouthY = y + height * 0.7;
+        const mouthWidth = width * 0.3;
+        const mouthHeight = height * 0.15;
+        for (let i = 0; i < 10; i++) {
+            const t = i / 9;
+            landmarks.push([
+                mouthX - mouthWidth / 2 + mouthWidth * t,
+                mouthY - mouthHeight / 2
+            ]);
+        }
+        for (let i = 0; i < 10; i++) {
+            const t = i / 9;
+            landmarks.push([
+                mouthX - mouthWidth / 2 + mouthWidth * t,
+                mouthY + mouthHeight / 2
+            ]);
+        }
+        
+        return landmarks;
+    }
+    
+    shouldConnectLandmarks(index, total) {
+        // Define which landmarks should be connected
+        // Face outline
+        if (index < 16) return true;
+        // Eyebrows
+        if (index >= 17 && index < 26) return (index - 17) % 4 !== 3;
+        // Nose
+        if (index >= 27 && index < 35) return (index - 27) % 3 !== 2;
+        // Eyes - connect in circle
+        if (index >= 36 && index < 47) return true;
+        // Mouth - connect outer and inner
+        if (index >= 48 && index < 67) return (index - 48) < 9 || (index - 48) >= 9;
+        return false;
     }
     
     clearCanvas() {
@@ -241,14 +453,29 @@ class VideoEmotionDetector {
     
     async start() {
         try {
-            // Request camera access
-            this.stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    width: { ideal: 640 },
-                    height: { ideal: 480 },
-                    facingMode: 'user'
+            // Request camera access with better error handling
+            try {
+                this.stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    }
+                });
+            } catch (error) {
+                // Handle permission errors specifically
+                if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                    throw new Error('Camera permission denied. Please allow camera access in your browser settings and refresh the page.');
+                } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+                    throw new Error('No camera found. Please connect a camera and try again.');
+                } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+                    throw new Error('Camera is already in use by another application. Please close other applications using the camera.');
+                } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
+                    throw new Error('Camera does not support the required settings. Trying with default settings...');
+                } else {
+                    throw new Error(`Camera access failed: ${error.message || 'Unknown error'}`);
                 }
-            });
+            }
             
             this.video.srcObject = this.stream;
             await this.video.play();
@@ -476,9 +703,22 @@ class VideoEmotionDetector {
             
             if (data.success && data.face_detected) {
                 // Update emotion display
-                const emotion = data.emotion || 'neutral';
-                const confidence = data.confidence || 0;
+                let emotion = data.emotion || 'neutral';
+                let confidence = data.confidence || 0;
                 const bbox = data.face_bbox;  // [x1, y1, x2, y2]
+                let emotions = data.emotions || {};  // All emotion confidences
+                
+                // Apply smoothing for stable video classification
+                const smoothed = this.applySmoothing(emotion, confidence, emotions);
+                emotion = smoothed.emotion;
+                confidence = smoothed.confidence;
+                emotions = smoothed.emotions;
+                
+                // Store current emotions for histogram
+                this.currentEmotions = emotions;
+                
+                // Update stacked histogram
+                this.updateStackedHistogram(emotions);
                 
                 // Use shared utility to display emotion result
                 if (this.Utils && this.Utils.displayEmotionResult) {
@@ -555,8 +795,129 @@ class VideoEmotionDetector {
                 }
                 
                 this.clearBoundingBox();
+                // Hide histogram when no face detected
+                if (this.videoHistogramContainer) {
+                    this.videoHistogramContainer.style.display = 'none';
+                }
             }
         }
+    }
+    
+    applySmoothing(emotion, confidence, emotions) {
+        // Add current prediction to history
+        this.emotionHistory.push(emotion);
+        this.confidenceHistory.push(confidence);
+        this.emotionsHistory.push(emotions);
+        
+        // Keep only last N predictions
+        if (this.emotionHistory.length > this.maxHistorySize) {
+            this.emotionHistory.shift();
+            this.confidenceHistory.shift();
+            this.emotionsHistory.shift();
+        }
+        
+        // Need at least 2 predictions for smoothing
+        if (this.emotionHistory.length < 2) {
+            return { emotion, confidence, emotions };
+        }
+        
+        // Count emotion occurrences (majority voting)
+        const emotionCounts = {};
+        this.emotionHistory.forEach(e => {
+            emotionCounts[e] = (emotionCounts[e] || 0) + 1;
+        });
+        
+        // Get most frequent emotion
+        let smoothedEmotion = emotion;
+        let maxCount = 0;
+        Object.entries(emotionCounts).forEach(([e, count]) => {
+            if (count > maxCount) {
+                maxCount = count;
+                smoothedEmotion = e;
+            }
+        });
+        
+        // Average confidence
+        const avgConfidence = this.confidenceHistory.reduce((a, b) => a + b, 0) / this.confidenceHistory.length;
+        
+        // Average emotion distributions
+        const smoothedEmotions = {};
+        const emotionKeys = Object.keys(emotions);
+        emotionKeys.forEach(key => {
+            const values = this.emotionsHistory.map(e => e[key] || 0);
+            smoothedEmotions[key] = values.reduce((a, b) => a + b, 0) / values.length;
+        });
+        
+        return {
+            emotion: smoothedEmotion,
+            confidence: avgConfidence,
+            emotions: smoothedEmotions
+        };
+    }
+    
+    updateStackedHistogram(emotions) {
+        if (!this.videoStackedHistogram || !emotions || Object.keys(emotions).length === 0) {
+            if (this.videoHistogramContainer) {
+                this.videoHistogramContainer.style.display = 'none';
+            }
+            return;
+        }
+        
+        // Show histogram container
+        if (this.videoHistogramContainer) {
+            this.videoHistogramContainer.style.display = 'block';
+        }
+        
+        // Sort emotions by confidence (descending)
+        const sortedEmotions = Object.entries(emotions)
+            .map(([emotion, confidence]) => ({
+                emotion: emotion.toLowerCase(),
+                confidence: Math.max(0, Math.min(1, confidence))  // Clamp between 0 and 1
+            }))
+            .sort((a, b) => b.confidence - a.confidence);
+        
+        // Clear existing histogram
+        this.videoStackedHistogram.innerHTML = '';
+        
+        // Create stacked bar
+        const barContainer = document.createElement('div');
+        barContainer.className = 'histogram-bar';
+        
+        let cumulativeWidth = 0;
+        sortedEmotions.forEach(({ emotion, confidence }) => {
+            if (confidence > 0.01) {  // Only show emotions with >1% confidence
+                const segment = document.createElement('div');
+                segment.className = `histogram-segment ${emotion}`;
+                const widthPercent = confidence * 100;
+                segment.style.width = `${widthPercent}%`;
+                
+                // Add label and value
+                const label = document.createElement('span');
+                label.className = 'histogram-label';
+                label.textContent = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+                
+                const value = document.createElement('span');
+                value.className = 'histogram-value';
+                value.textContent = `${(confidence * 100).toFixed(1)}%`;
+                
+                segment.appendChild(label);
+                segment.appendChild(value);
+                barContainer.appendChild(segment);
+                cumulativeWidth += widthPercent;
+            }
+        });
+        
+        // If no segments, show message
+        if (barContainer.children.length === 0) {
+            const noDataMsg = document.createElement('div');
+            noDataMsg.className = 'histogram-segment';
+            noDataMsg.style.width = '100%';
+            noDataMsg.style.justifyContent = 'center';
+            noDataMsg.textContent = 'No emotion data available';
+            barContainer.appendChild(noDataMsg);
+        }
+        
+        this.videoStackedHistogram.appendChild(barContainer);
     }
     
     stop() {
@@ -570,7 +931,11 @@ class VideoEmotionDetector {
         
         // Close WebSocket
         if (this.ws) {
-            this.ws.send(JSON.stringify({ type: 'stop' }));
+            try {
+                this.ws.send(JSON.stringify({ type: 'stop' }));
+            } catch (e) {
+                // Ignore send errors when closing
+            }
             this.ws.close();
             this.ws = null;
         }
@@ -582,6 +947,11 @@ class VideoEmotionDetector {
         }
         
         this.video.srcObject = null;
+        
+        // Clear smoothing history
+        this.emotionHistory = [];
+        this.confidenceHistory = [];
+        this.emotionsHistory = [];
         
         // Show placeholder if it exists
         if (this.videoPlaceholder) {
@@ -601,6 +971,9 @@ class VideoEmotionDetector {
         }
         if (this.videoResult) {
             this.videoResult.style.display = 'none';
+        }
+        if (this.videoHistogramContainer) {
+            this.videoHistogramContainer.style.display = 'none';
         }
         this.clearBoundingBox();
     }

@@ -297,6 +297,21 @@ def analyze_audio_file(audio_bytes: bytes, filename: str = "audio.webm") -> Dict
         emotion_name = dominant_emotion[0]
         confidence = dominant_emotion[1]
         
+        # Derive additional metadata
+        mood_category = "Positive" if emotion_name in ["happiness", "surprise"] else ("Negative" if emotion_name in ["sadness", "anger", "fear", "disgust"] else "Neutral")
+        energy_level = "High" if confidence > 0.7 else ("Medium" if confidence > 0.4 else "Low")
+        tone = "Casual"  # Can be enhanced with LLM analysis
+        emotional_intensity = confidence
+        
+        # Extract key phrases (simple: first few words)
+        words = transcript.split()[:5]
+        key_phrases = words if len(words) > 0 else []
+        
+        # Generate overall vibe and explanation
+        emotion_display = emotion_name.capitalize()
+        overall_vibe = f"The speaker appears {emotion_display.lower()} with {confidence:.0%} confidence."
+        explanation = f"Analysis indicates {emotion_display.lower()} as the dominant emotion based on speech patterns and content."
+        
         logger.info(
             f"[{request_id}] ✅ Audio emotion analysis successful | "
             f"emotion='{emotion_name}' | confidence={confidence:.3f} | "
@@ -307,7 +322,15 @@ def analyze_audio_file(audio_bytes: bytes, filename: str = "audio.webm") -> Dict
             "success": True,
             "emotion": emotion_name,
             "confidence": confidence,
-            "emotions": emotions
+            "emotions": emotions,
+            "transcript": transcript,
+            "mood_category": mood_category,
+            "energy_level": energy_level,
+            "tone": tone,
+            "emotional_intensity": emotional_intensity,
+            "key_phrases": key_phrases,
+            "overall_vibe": overall_vibe,
+            "explanation": explanation
         }
         
     except Exception as e:

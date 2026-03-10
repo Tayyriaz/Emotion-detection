@@ -19,8 +19,8 @@ services:
       - key: TORCH_NUM_THREADS
         value: "2"  # Optimize for limited CPU on Starter plan
       - key: VIDEO_FRAME_SKIP
-        value: "10"  # Process every 10th frame (reduces load on slow CPU)
+        value: "5"  # Process every 5th frame (faster emotion change detection)
       - key: VIDEO_MIN_CONFIDENCE_DELTA
-        value: "0.15"  # Only send updates on significant emotion changes
+        value: "0.05"  # Lower threshold for faster emotion change detection
     healthCheckPath: /health
     autoDeploy: true

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Audio Emotion Detection - Analyze emotions from speech">
+    <title>🎤 Audio Emotion Detection</title>
+    <link rel="stylesheet" href="/static/css/audio_emotion.css?v=1.0" type="text/css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎤 Audio Emotion Detection</h1>
+            <p>Upload an audio file to analyze emotions from speech</p>
+        </div>
+
+        <!-- Upload Card -->
+        <div class="card">
+            <div class="upload-area" id="uploadArea">
+                <input type="file" id="fileInput" accept="audio/*" style="display: none;">
+                <div class="upload-content">
+                    <div class="upload-icon">📁</div>
+                    <p class="upload-text-primary">Drag & drop audio file here</p>
+                    <p class="upload-text-secondary">or click to browse</p>
+                    <p class="upload-formats">Supports: WAV, MP3, WebM, OGG, M4A</p>
+                </div>
+            </div>
+            
+            <div class="file-info" id="fileInfo">
+                <div class="file-info-content">
+                    <span class="file-name" id="fileName"></span>
+                    <span class="file-size" id="fileSize"></span>
+                </div>
+            </div>
+            
+            <button class="btn-analyze" id="btnAnalyze" disabled>Analyze Emotion</button>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Processing audio...</p>
+            </div>
+            
+            <div class="error-message" id="errorMessage"></div>
+        </div>
+
+        <!-- Results Card -->
+        <div class="card results" id="results">
+            <div class="emotion-display">
+                <div class="emotion-label" id="emotionLabel">-</div>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" id="confidenceFill" style="width: 0%">
+                        <span class="confidence-text" id="confidenceText">0%</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="transcript-box">
+                <div class="transcript-label">📝 Transcript</div>
+                <div class="transcript-text" id="transcriptText">-</div>
+            </div>
+            
+            <div class="details-grid">
+                <div class="detail-item">
+                    <div class="detail-label">Mood Category</div>
+                    <div class="detail-value" id="moodCategory">-</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Energy Level</div>
+                    <div class="detail-value" id="energyLevel">-</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Tone</div>
+                    <div class="detail-value" id="tone">-</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Emotional Intensity</div>
+                    <div class="detail-value" id="emotionalIntensity">-</div>
+                </div>
+            </div>
+            
+            <div class="key-phrases-section">
+                <div class="key-phrases-label">🔑 Key Phrases</div>
+                <div class="phrase-tags" id="keyPhrases">
+                    <!-- Phrases will be added here -->
+                </div>
+            </div>
+            
+            <div class="overall-section">
+                <div class="overall-label">💭 Overall Vibe</div>
+                <div class="overall-text" id="overallVibe">-</div>
+            </div>
+            
+            <div class="explanation-section">
+                <div class="explanation-label">📊 Explanation</div>
+                <div class="explanation-text" id="explanation">-</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/audio_emotion_standalone.js"></script>
+</body>
+</html>

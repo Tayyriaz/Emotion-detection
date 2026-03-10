@@ -36,21 +36,25 @@ async def _validate_and_read_audio(file: UploadFile) -> bytes:
     
     logger.info(f"Validating audio file: filename='{filename}', content_type='{content_type}'")
     
-    # Accept common audio formats
+    # Accept common audio formats (MP3 fully supported)
     allowed_types = {
         "audio/wav", "audio/x-wav", "audio/wave",
-        "audio/mpeg", "audio/mp3",
-        "audio/webm", "audio/ogg",
-        "audio/x-m4a", "audio/mp4"
+        "audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg",  # MP3 formats
+        "audio/webm", "audio/ogg", "audio/oga",
+        "audio/x-m4a", "audio/mp4", "audio/m4a",
+        "audio/flac", "audio/x-flac"  # Additional formats
     }
     
+    # Supported file extensions
+    supported_extensions = [".wav", ".mp3", ".webm", ".ogg", ".m4a", ".mp4", ".flac"]
+    
     if content_type not in allowed_types:
-        # Also check filename extension
-        if not any(filename.lower().endswith(ext) for ext in [".wav", ".mp3", ".webm", ".ogg", ".m4a", ".mp4"]):
+        # Also check filename extension (MP3 support)
+        if not any(filename.lower().endswith(ext) for ext in supported_extensions):
             logger.warning(f"Unsupported file type: filename='{filename}', content_type='{content_type}'")
             raise HTTPException(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Unsupported file type. Please upload a WAV, MP3, WebM, or OGG audio file.",
+                detail=f"Unsupported file type. Please upload a supported audio file: {', '.join(supported_extensions).upper()}",
             )
     
     audio_bytes = await file.read()
@@ -77,11 +81,11 @@ async def _validate_and_read_audio(file: UploadFile) -> bytes:
 
 
 @router.post(
-    "/audio/emotion",
+    "/api/audio/analyze",
     response_model=AudioEmotionResponse,
-    summary="Analyze emotion from uploaded audio file",
+    summary="Analyze emotion from uploaded audio file (client API)",
 )
-async def audio_emotion(file: UploadFile = File(...)) -> AudioEmotionResponse:
+async def audio_emotion_analyze(audio_file: UploadFile = File(..., alias="audio_file")) -> AudioEmotionResponse:
     """
     Analyze emotion from uploaded audio file.
     
@@ -92,13 +96,20 @@ async def audio_emotion(file: UploadFile = File(...)) -> AudioEmotionResponse:
     
     Returns dominant emotion, confidence score, and all emotion scores.
     """
-    filename = file.filename or "audio.webm"
+    filename = audio_file.filename or "audio.webm"
     request_id = get_request_id() or "unknown"
     
     try:
         logger.info(f"[{request_id}] Starting audio emotion analysis: filename='{filename}'")
         
-        audio_bytes = await _validate_and_read_audio(file)
+        # Validate file parameter
+        if not audio_file:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No audio file provided. Please upload an audio file."
+            )
+        
+        audio_bytes = await _validate_and_read_audio(audio_file)
         file_size_mb = len(audio_bytes) / (1024 * 1024)
 
         # Track inference time
@@ -131,7 +142,15 @@ async def audio_emotion(file: UploadFile = File(...)) -> AudioEmotionResponse:
             emotion=emotion,
             confidence=confidence,
             emotions=emotions,
-            backend="groq"
+            backend="groq",
+            transcript=result.get("transcript", ""),
+            mood_category=result.get("mood_category", ""),
+            energy_level=result.get("energy_level", ""),
+            tone=result.get("tone", ""),
+            emotional_intensity=result.get("emotional_intensity", 0.0),
+            key_phrases=result.get("key_phrases", []),
+            overall_vibe=result.get("overall_vibe", ""),
+            explanation=result.get("explanation", "")
         )
         
     except HTTPException:
@@ -152,3 +171,15 @@ async def audio_emotion(file: UploadFile = File(...)) -> AudioEmotionResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to analyze audio emotion: {exc}",
         ) from exc
+
+
+@router.post(
+    "/audio/emotion",
+    response_model=AudioEmotionResponse,
+    summary="Analyze emotion from uploaded audio file (legacy endpoint)",
+)
+async def audio_emotion(file: UploadFile = File(...)) -> AudioEmotionResponse:
+    """
+    Legacy endpoint - use /api/audio/analyze instead.
+    """
+    return await audio_emotion_analyze(file)

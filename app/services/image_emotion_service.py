@@ -25,14 +25,25 @@ logger = get_logger(__name__)
 def _bytes_to_ndarray(image_bytes: bytes) -> np.ndarray:
     """
     Decode raw image bytes into a BGR NumPy array using OpenCV.
+    Optimized: Resize large images immediately for faster processing.
     """
-
     byte_array = np.frombuffer(image_bytes, dtype=np.uint8)
     image = cv2.imdecode(byte_array, cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError(
             "Unable to decode image. Please upload a valid JPG or PNG (HEIC/WEBP may not be supported)."
         )
+    
+    # Resize very large images for faster processing (max 1920px width)
+    # This speeds up both face detection and emotion analysis
+    max_width = 1920
+    if image.shape[1] > max_width:
+        scale = max_width / image.shape[1]
+        new_width = max_width
+        new_height = int(image.shape[0] * scale)
+        image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        logger.debug(f"Resized image from {image.shape[1]}x{image.shape[0]} to {new_width}x{new_height} for faster processing")
+    
     return image
 
 
@@ -95,6 +106,7 @@ def analyze_image_emotion(image_bytes: bytes) -> ImageEmotionResponse:
         success=face_detected,
         emotion=emotion,
         confidence=confidence,
+        emotions=emotions,  # All emotion scores for visualization
         aus={},  # HSEmotion doesn't provide AU scores
         backend="hsemotion",
     )

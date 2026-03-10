@@ -3,135 +3,87 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Emotion Detection - Webcam</title>
-    <link rel="stylesheet" href="/static/css/image_emotion.css">
-    <style>
-        .video-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        
-        .video-wrapper {
-            position: relative;
-            background: var(--card-bg);
-            border-radius: 16px;
-            padding: 1.5rem;
-            box-shadow: var(--shadow-md);
-            margin-bottom: 2rem;
-        }
-        
-        #videoElement {
-            width: 100%;
-            max-width: 640px;
-            height: auto;
-            border-radius: 12px;
-            background: #000;
-            display: block;
-            margin: 0 auto;
-        }
-        
-        .controls {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            margin-top: 1.5rem;
-            flex-wrap: wrap;
-        }
-        
-        .emotion-display {
-            text-align: center;
-            margin-top: 2rem;
-        }
-        
-        .emotion-label {
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: var(--primary-color);
-            margin-bottom: 0.5rem;
-            text-transform: capitalize;
-            transition: all 0.3s ease;
-        }
-        
-        .confidence-bar {
-            width: 100%;
-            max-width: 400px;
-            height: 8px;
-            background: var(--border-color);
-            border-radius: 4px;
-            margin: 1rem auto;
-            overflow: hidden;
-        }
-        
-        .confidence-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary-color), var(--success-color));
-            transition: width 0.3s ease;
-            border-radius: 4px;
-        }
-        
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 0.5rem;
-            background: var(--error-color);
-            animation: pulse 2s infinite;
-        }
-        
-        .status-indicator.active {
-            background: var(--success-color);
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        .error-message {
-            color: var(--error-color);
-            text-align: center;
-            margin-top: 1rem;
-            padding: 1rem;
-            background: rgba(239, 68, 68, 0.1);
-            border-radius: 8px;
-        }
-    </style>
+    <meta name="description" content="Real-Time Video Emotion Detection - Live webcam analysis">
+    <title>🎥 Real-Time Emotion Detection</title>
+    <link rel="stylesheet" href="/static/css/video_emotion.css?v=1.0" type="text/css">
 </head>
 <body>
-    <div class="video-container">
-        <h1 style="text-align: center; margin-bottom: 2rem;">Live Emotion Detection</h1>
-        
-        <div class="video-wrapper">
-            <video id="videoElement" autoplay playsinline></video>
-            
-            <div class="controls">
-                <button id="startBtn" class="primary-btn">
-                    Start Camera
-                </button>
-                <button id="stopBtn" class="primary-btn" disabled>
-                    Stop Camera
-                </button>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎥 Real-Time Emotion Detection</h1>
+            <p>Live webcam analysis with continuous emotion updates</p>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <button class="btn-start" id="btnStart">Start Recording</button>
+            <button class="btn-stop" id="btnStop" style="display: none;">Stop Recording</button>
+        </div>
+
+        <!-- Video Container -->
+        <div class="video-container">
+            <div class="video-box">
+                <h2>📹 Video Feed</h2>
+                <div class="video-wrapper">
+                    <video id="videoFeed" autoplay playsinline></video>
+                    <canvas id="videoCanvas"></canvas>
+                    <div class="video-placeholder" id="videoPlaceholder">
+                        <div class="placeholder-icon">📹</div>
+                        <p>Click "Start Recording" to begin</p>
+                    </div>
+                </div>
             </div>
             
-            <div class="emotion-display" id="emotionDisplay" style="display: none;">
-                <div class="status-indicator active" id="statusIndicator"></div>
-                <span id="statusText">Analyzing...</span>
+            <div class="video-box">
+                <h2>😊 Current Emotion</h2>
+                <div class="emotion-display">
+                    <div class="emotion-label" id="emotionLabel">-</div>
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" id="confidenceFill" style="width: 0%">
+                            <span class="confidence-text" id="confidenceText">0%</span>
+                        </div>
+                    </div>
+                </div>
                 
-                <div class="emotion-label" id="emotionLabel">Neutral</div>
-                <div class="confidence-bar">
-                    <div class="confidence-fill" id="confidenceFill" style="width: 0%"></div>
+                <!-- Stacked Histogram -->
+                <div class="histogram-container" id="histogramContainer" style="display: none;">
+                    <h3 class="histogram-title">Emotion Distribution</h3>
+                    <div class="stacked-histogram" id="stackedHistogram"></div>
                 </div>
-                <div style="color: var(--text-secondary); margin-top: 0.5rem;">
-                    Confidence: <span id="confidenceText">0%</span>
+                
+                <!-- Facial Landmarks Toggle -->
+                <div class="landmarks-control">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="showLandmarksToggle">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Show Facial Points</span>
+                    </label>
+                </div>
+                
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="frameCount">0</div>
+                        <div class="stat-label">Frames</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="duration">0s</div>
+                        <div class="stat-label">Duration</div>
+                    </div>
                 </div>
             </div>
-            
-            <div id="errorMessage" class="error-message" style="display: none;"></div>
+        </div>
+
+        <!-- Status -->
+        <div class="status-section">
+            <h2>📊 Session Status</h2>
+            <div class="status" id="status">
+                <span class="status-indicator stopped"></span>
+                <span class="status-text">Stopped</span>
+            </div>
         </div>
     </div>
 
-    <script src="/static/js/video_emotion.js"></script>
+    <script src="/static/js/video_emotion_standalone.js"></script>
 </body>
 </html>

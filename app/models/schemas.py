@@ -13,6 +13,7 @@ class ImageEmotionResponse(BaseModel):
     success: bool
     emotion: str
     confidence: float
+    emotions: Dict[str, float] = {}  # All emotion scores (for visualization)
     aus: Dict[str, float]
     backend: str
 
@@ -21,7 +22,7 @@ class AudioEmotionResponse(BaseModel):
     """
     Response model for audio emotion analysis.
     
-    Returns 7 emotion categories with confidence scores.
+    Returns 7 emotion categories with confidence scores and additional metadata.
     """
 
     success: bool
@@ -29,3 +30,11 @@ class AudioEmotionResponse(BaseModel):
     confidence: float
     emotions: Dict[str, float]  # All 7 emotion scores
     backend: str
+    transcript: str = ""  # Transcription text
+    mood_category: str = ""  # Positive/Negative/Neutral
+    energy_level: str = ""  # High/Medium/Low
+    tone: str = ""  # Casual/Formal/etc
+    emotional_intensity: float = 0.0  # 0.0-1.0
+    key_phrases: list = []  # List of key phrases
+    overall_vibe: str = ""  # Overall description
+    explanation: str = ""  # Detailed explanation

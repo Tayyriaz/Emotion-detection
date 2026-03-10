@@ -13,7 +13,8 @@ from asyncio import TimeoutError as AsyncTimeoutError
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, status
+from pydantic import BaseModel
 
 from app.config import get_settings
 from app.services.models.hsemotion_detector import HSEmotionDetector
@@ -23,6 +24,11 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 router = APIRouter(tags=["Video Emotion"])
+
+
+class FrameAnalysisRequest(BaseModel):
+    """Request model for browser frame analysis."""
+    image: str  # Base64 encoded image
 
 
 def _decode_base64_image(base64_str: str) -> np.ndarray:
@@ -232,3 +238,86 @@ async def video_emotion_websocket(websocket: WebSocket):
         logger.error(f"WebSocket error: {e}", exc_info=True)
     finally:
         logger.info(f"Video emotion session ended (processed {frame_count} frames)")
+
+
+@router.post("/video/emotion", summary="Analyze single frame from browser webcam")
+async def analyze_browser_frame(request: FrameAnalysisRequest):
+    """
+    Analyze a single frame from browser webcam.
+    Used for polling-based real-time analysis.
+    """
+    try:
+        # Decode image
+        image = _decode_base64_image(request.image)
+        
+        # Analyze emotion
+        if not HSEmotionDetector.is_available():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="HSEmotion library not available"
+            )
+        
+        detector = HSEmotionDetector.instance()
+        result = detector.analyze_image(image)
+        
+        face_detected = result.get("face_detected", False)
+        emotions = result.get("emotions", {}) or {}
+        
+        if face_detected and emotions:
+            emotion = result.get("emotion", "neutral")
+            confidence = result.get("confidence", 0.0)
+            face_bbox = result.get("face_bbox")
+            
+            # Convert bbox to list if tuple
+            if face_bbox and isinstance(face_bbox, tuple):
+                face_bbox = [int(coord) for coord in face_bbox]
+            
+            return {
+                "success": True,
+                "emotion": emotion,
+                "confidence": round(confidence, 3),
+                "emotions": {k: round(v, 3) for k, v in emotions.items()},
+                "face_detected": True,
+                "face_bbox": face_bbox,
+                "aus": {}  # HSEmotion doesn't provide AUs
+            }
+        else:
+            return {
+                "success": False,
+                "emotion": "neutral",
+                "confidence": 0.0,
+                "emotions": {},
+                "face_detected": False,
+                "aus": {}
+            }
+            
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid image data: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Frame analysis error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze frame: {str(e)}"
+        )
+
+
+@router.get("/get_realtime_data", summary="Get real-time telemetry data (polling endpoint)")
+async def get_realtime_data():
+    """
+    Polling endpoint for real-time telemetry.
+    Returns current emotion state (for server-side video processing).
+    """
+    # This would be implemented if backend supports server-side video processing
+    # For now, return empty state
+    return {
+        "success": False,
+        "emotion": "neutral",
+        "confidence": 0.0,
+        "emotions": {},
+        "face_detected": False,
+        "aus": {},
+        "message": "Server-side video processing not implemented. Use browser webcam mode."
+    }

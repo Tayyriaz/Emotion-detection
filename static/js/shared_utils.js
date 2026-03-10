@@ -100,10 +100,14 @@ const SharedUtils = {
         // Show result section
         if (elements.result) {
             elements.result.style.display = 'block';
-            // Scroll result into view smoothly
-            setTimeout(() => {
-                elements.result.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }, 100);
+            // Only scroll for image/audio results, not for video (video is already visible)
+            // Video results update frequently, scrolling would be annoying
+            const isVideoResult = elements.result.id && elements.result.id.includes('video');
+            if (!isVideoResult) {
+                setTimeout(() => {
+                    elements.result.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 100);
+            }
         }
 
         // Hide empty state if exists

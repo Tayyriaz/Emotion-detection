@@ -74,18 +74,20 @@ class GroqClient:
             request_id = get_request_id() or "unknown"
             file_size_kb = len(audio_data) / 1024
             
-            # Determine MIME type from filename
+            # Determine MIME type from filename (MP3 fully supported)
             filename_lower = filename.lower()
             if filename_lower.endswith('.wav'):
                 mime_type = 'audio/wav'
             elif filename_lower.endswith('.mp3'):
-                mime_type = 'audio/mpeg'
+                mime_type = 'audio/mpeg'  # MP3 uses audio/mpeg MIME type
             elif filename_lower.endswith('.webm'):
                 mime_type = 'audio/webm'
-            elif filename_lower.endswith('.ogg'):
+            elif filename_lower.endswith('.ogg') or filename_lower.endswith('.oga'):
                 mime_type = 'audio/ogg'
             elif filename_lower.endswith('.m4a') or filename_lower.endswith('.mp4'):
                 mime_type = 'audio/mp4'
+            elif filename_lower.endswith('.flac'):
+                mime_type = 'audio/flac'
             else:
                 mime_type = 'audio/webm'  # Default
                 logger.debug(f"[{request_id}] Unknown file extension, using default mime_type: {mime_type}")

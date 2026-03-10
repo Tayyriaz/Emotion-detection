@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     MODEL_WARMUP: bool = True
 
     # Video processing settings
-    VIDEO_FRAME_SKIP: int = 10  # Process every Nth frame (higher = less processing, better for slow CPU)
-    VIDEO_MIN_CONFIDENCE_DELTA: float = 0.15  # Minimum confidence change to send update (higher = fewer updates)
+    VIDEO_FRAME_SKIP: int = 5  # Process every Nth frame (lower = faster emotion change detection)
+    VIDEO_MIN_CONFIDENCE_DELTA: float = 0.05  # Minimum confidence change to send update (lower = more responsive)
 
     # Audio processing settings
     GROQ_API_KEY: str = ""  # Groq API key for audio emotion detection

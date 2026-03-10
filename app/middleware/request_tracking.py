@@ -46,12 +46,18 @@ class RequestTrackingMiddleware(BaseHTTPMiddleware):
         )
 
         # Process request
+        response = None
+        is_error = False
         try:
             response = await call_next(request)
             is_error = response.status_code >= 400
         except Exception as exc:
             is_error = True
-            logger.exception(f"Unhandled exception: {exc}")
+            logger.exception(
+                f"❌ Unhandled exception in {request.method} {request.url.path}: {exc}",
+                exc_info=True
+            )
+            # Re-raise to let FastAPI handle it
             raise
         finally:
             # Calculate latency
@@ -64,13 +70,15 @@ class RequestTrackingMiddleware(BaseHTTPMiddleware):
 
             # Log request completion
             status_emoji = "❌" if is_error else "✅"
+            status_code = response.status_code if response else "ERROR"
             logger.info(
                 f"{status_emoji} {request.method} {request.url.path} - "
-                f"Status: {response.status_code if not is_error else 'ERROR'} - "
+                f"Status: {status_code} - "
                 f"Latency: {latency_ms:.1f}ms"
             )
 
         # Add request ID to response headers (useful for debugging)
-        response.headers["X-Request-ID"] = request_id
+        if response:
+            response.headers["X-Request-ID"] = request_id
 
         return response

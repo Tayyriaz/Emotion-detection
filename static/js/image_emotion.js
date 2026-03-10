@@ -150,6 +150,13 @@
         const file = files[0];
         console.log('File selected:', file.name, file.type, file.size);
         
+        // Check if file is readable
+        if (!file || !file.name) {
+            console.error('Invalid file object');
+            showError('Invalid file. Please select a valid image file.');
+            return;
+        }
+        
         // Validate file type
         const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
         const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
@@ -174,36 +181,75 @@
             return;
         }
         
+        // Check if file is empty
+        if (file.size === 0) {
+            console.error('Empty file');
+            showError('The selected file is empty. Please select a valid image file.');
+            return;
+        }
+        
         console.log('File validated successfully, proceeding with upload');
         selectedFile = file;
-        updatePreview(file);
-        hideError();
         
-        // Auto-analyze after preview
-        setTimeout(() => {
-            console.log('Starting image analysis...');
-            analyzeImage();
-        }, 300);
+        // Use FileReader with error handling
+        try {
+            updatePreview(file);
+            hideError();
+            
+            // Auto-analyze after preview
+            setTimeout(() => {
+                console.log('Starting image analysis...');
+                analyzeImage();
+            }, 300);
+        } catch (error) {
+            console.error('Error reading file:', error);
+            showError(`Failed to read file: ${error.message || 'Unknown error'}`);
+        }
     }
     
     function updatePreview(file) {
         const reader = new FileReader();
+        
+        reader.onerror = (error) => {
+            console.error('FileReader error:', error);
+            showError('Failed to read image file. Please try selecting a different file.');
+        };
+        
         reader.onload = (e) => {
-            if (previewImage) {
-                previewImage.src = e.target.result;
-                previewImage.style.display = 'block';
-            }
-            if (defaultContent) {
-                defaultContent.style.display = 'none';
-            }
-            if (imageResult) {
-                imageResult.style.display = 'none';
-            }
-            if (imageEmptyState) {
-                imageEmptyState.style.display = 'none';
+            try {
+                if (previewImage) {
+                    previewImage.src = e.target.result;
+                    previewImage.style.display = 'block';
+                    
+                    // Handle image load errors
+                    previewImage.onerror = () => {
+                        console.error('Image preview failed to load');
+                        showError('Failed to preview image. The file may be corrupted.');
+                        if (previewImage) previewImage.style.display = 'none';
+                        if (defaultContent) defaultContent.style.display = 'block';
+                    };
+                }
+                if (defaultContent) {
+                    defaultContent.style.display = 'none';
+                }
+                if (imageResult) {
+                    imageResult.style.display = 'none';
+                }
+                if (imageEmptyState) {
+                    imageEmptyState.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error updating preview:', error);
+                showError(`Failed to display preview: ${error.message || 'Unknown error'}`);
             }
         };
-        reader.readAsDataURL(file);
+        
+        try {
+            reader.readAsDataURL(file);
+        } catch (error) {
+            console.error('Error reading file as data URL:', error);
+            showError(`Failed to read file: ${error.message || 'Unknown error'}`);
+        }
     }
     
     async function analyzeImage() {
@@ -214,46 +260,63 @@
         
         console.log('Starting image analysis, sending request to:', API_ENDPOINT);
         
+        // IMMEDIATE FEEDBACK: Show loading state instantly (before network request)
+        if (imageEmptyState) {
+            imageEmptyState.style.display = 'none';
+        }
+        
+        if (imageResult) {
+            imageResult.style.display = 'block';
+            // Show loading message immediately
+            if (imageEmotionIcon) {
+                imageEmotionIcon.textContent = '⏳';
+            }
+            if (imageEmotionLabel) {
+                imageEmotionLabel.textContent = 'Analyzing...';
+            }
+            if (imageConfidenceFill) {
+                imageConfidenceFill.style.width = '0%';
+            }
+            if (imageConfidence) {
+                imageConfidence.textContent = 'Processing...';
+            }
+            if (imageStatusText) {
+                imageStatusText.textContent = 'Uploading & Analyzing';
+            }
+        }
+        
+        // Scroll to result immediately so user sees feedback
+        if (imageResult) {
+            imageResult.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        
         try {
-            // Show loading state
-            if (imageEmptyState) {
-                imageEmptyState.style.display = 'none';
-            }
             
-            if (imageResult) {
-                imageResult.style.display = 'block';
-                // Show loading message in result section
-                if (imageEmotionIcon) {
-                    imageEmotionIcon.textContent = '⏳';
-                }
-                if (imageEmotionLabel) {
-                    imageEmotionLabel.textContent = 'Analyzing...';
-                }
-                if (imageConfidenceFill) {
-                    imageConfidenceFill.style.width = '0%';
-                }
-                if (imageConfidence) {
-                    imageConfidence.textContent = 'Please wait...';
-                }
-                if (imageStatusText) {
-                    imageStatusText.textContent = 'Processing';
-                }
-            }
-            
-            const formData = new FormData();
-            formData.append('file', selectedFile);
-            
-            console.log('Sending POST request to:', API_ENDPOINT);
-            console.log('File details:', {
-                name: selectedFile.name,
-                type: selectedFile.type,
-                size: selectedFile.size
-            });
-            
-            const response = await fetch(API_ENDPOINT, {
-                method: 'POST',
-                body: formData
-            });
+               // Create FormData and send request
+               const formData = new FormData();
+               formData.append('file', selectedFile);
+               
+               console.log('Sending POST request to:', API_ENDPOINT);
+               console.log('File details:', {
+                   name: selectedFile.name,
+                   type: selectedFile.type,
+                   size: selectedFile.size
+               });
+               
+               // Update status to show upload progress
+               if (imageStatusText) {
+                   imageStatusText.textContent = 'Uploading...';
+               }
+               
+               const response = await fetch(API_ENDPOINT, {
+                   method: 'POST',
+                   body: formData
+               });
+               
+               // Update status immediately when response received
+               if (imageStatusText) {
+                   imageStatusText.textContent = 'Processing result...';
+               }
             
             console.log('Response received:', response.status, response.statusText);
             

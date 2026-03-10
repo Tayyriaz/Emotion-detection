@@ -15,7 +15,7 @@ Architecture:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
@@ -124,20 +124,30 @@ def create_app() -> FastAPI:
 
         logger.info("🚀 Application startup complete")
 
-    @app.get("/", summary="Unified frontend page")
+    @app.get("/", response_class=HTMLResponse, summary="Unified frontend page")
     async def root():
-        """Serve the unified frontend page with image and video features."""
+        """Serve the unified frontend page matching client architecture."""
+        return FileResponse("templates/index.html")
+    
+    @app.get("/legacy", summary="Legacy unified frontend page")
+    async def legacy_root():
+        """Serve the legacy unified frontend page."""
         return FileResponse("static/index.html")
+    
+    @app.get("/audio", summary="Audio emotion detection page")
+    async def audio_page():
+        """Serve the standalone audio emotion detection page."""
+        return FileResponse("static/audio_emotion.html")
+    
+    @app.get("/video", summary="Video emotion detection page")
+    async def video_page():
+        """Serve the standalone video emotion detection page."""
+        return FileResponse("static/video_emotion.html")
     
     @app.get("/image", summary="Image emotion detection page (legacy)")
     async def image_page():
         """Serve the image emotion detection page (legacy)."""
         return FileResponse("static/image_emotion.html")
-    
-    @app.get("/video", summary="Video emotion detection page (legacy)")
-    async def video_page():
-        """Serve the video emotion detection page (legacy)."""
-        return FileResponse("static/video_emotion.html")
 
     @app.get("/health", summary="Basic health check")
     async def health_check() -> dict:

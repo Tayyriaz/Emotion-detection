@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Multimodal Emotion Analyzer - Real-time emotion detection from video and audio">
+    <title>Multimodal Emotion Analyzer</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=2025-12-10-01">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="brand">
+                    <div class="logo">🎭</div>
+                    <h1>Multimodal Emotion Analyzer</h1>
+                </div>
+                <div class="status-badges">
+                    <span class="badge badge-muted" id="uiVersion">UI v2025-12-10-01</span>
+                    <span class="badge badge-idle" id="backendStatus">Backend: Checking...</span>
+                    <span class="badge badge-idle" id="serverStatus">Server: Online</span>
+                    <span class="badge badge-idle" id="imageStatus">Image: Idle</span>
+                    <span class="badge badge-idle" id="videoStatus">Video: Idle</span>
+                    <span class="badge badge-idle" id="audioStatus">Audio: Idle</span>
+                    <span class="badge badge-muted" id="auCount">AUs: 0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Tab Navigation -->
+            <div class="tabs">
+                <button class="tab-btn" data-tab="image" id="imageTabBtn">
+                    <span class="tab-icon">📷</span>
+                    <span class="tab-label">Image Analysis</span>
+                </button>
+                <button class="tab-btn active" data-tab="video" id="videoTabBtn">
+                    <span class="tab-icon">🎥</span>
+                    <span class="tab-label">Video Analysis</span>
+                </button>
+                <button class="tab-btn" data-tab="audio" id="audioTabBtn">
+                    <span class="tab-icon">🎤</span>
+                    <span class="tab-label">Audio Analysis</span>
+                </button>
+            </div>
+
+            <!-- Image Tab -->
+            <div class="tab-content" id="imageTab">
+                <div class="grid two">
+                    <!-- Image Input Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>📷 Image Upload</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="upload-area-audio" id="imageUploadArea">
+                                <input type="file" id="imageFileInput" accept="image/*" style="display: none;">
+                                <div class="upload-content-audio">
+                                    <div class="upload-icon-audio">📷</div>
+                                    <p>Drag & drop image file here</p>
+                                    <p>or click to browse</p>
+                                    <p class="upload-formats">JPG, PNG, WebP</p>
+                                </div>
+                            </div>
+                            <div class="file-info-audio" id="imageFileInfo" style="display: none;">
+                                <span id="imageFileName"></span>
+                                <span id="imageFileSize"></span>
+                            </div>
+                            <div class="image-preview-container" id="imagePreviewContainer" style="display: none;">
+                                <img id="imagePreview" alt="Preview" style="max-width: 100%; max-height: 300px; border-radius: 8px; margin-top: 16px;">
+                            </div>
+                            <button class="btn btn-primary" id="analyzeImageBtn" style="display: none;">Analyze Emotion</button>
+                            <div class="error-message" id="imageErrorMessage" style="display: none;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Image Results Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>😊 Emotion Results</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="results-grid" id="imageResults" style="display: none;">
+                                <!-- Primary Emotion Card -->
+                                <div class="result-card">
+                                    <div class="result-label">Detected Emotion</div>
+                                    <div class="result-value-large" id="imageEmotion">-</div>
+                                </div>
+                                
+                                <!-- Confidence Card -->
+                                <div class="result-card">
+                                    <div class="result-label">Confidence</div>
+                                    <div class="result-value-large" id="imageConfidence">-</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Emotion Distribution Chart -->
+                            <div class="chart-card" id="imageEmotionChartCard" style="display: none;">
+                                <h3>Emotion Distribution</h3>
+                                <canvas id="imageEmotionChart"></canvas>
+                            </div>
+                            
+                            <!-- Emotion Details -->
+                            <div class="emotion-details-section" id="imageEmotionDetails" style="display: none;">
+                                <h3>📊 Emotion Scores</h3>
+                                <div class="emotion-scores-list" id="imageEmotionScores"></div>
+                            </div>
+                            
+                            <!-- Empty State -->
+                            <div class="empty-state-audio" id="imageEmptyState">
+                                <div class="empty-icon">📷</div>
+                                <p>Upload an image to detect emotions</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video Tab -->
+            <div class="tab-content active" id="videoTab">
+                <div class="grid two">
+                    <!-- Live Video Stream Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>📹 Live Video Stream</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="video-display-container">
+                                <video id="videoStream" autoplay playsinline style="display: none;"></video>
+                                <canvas id="videoCanvas"></canvas>
+                                <div class="video-placeholder" id="videoPlaceholder">
+                                    <div class="placeholder-icon">📹</div>
+                                    <p>Click "Start Recording" to begin</p>
+                                </div>
+                            </div>
+                            
+                            <div class="controls-row">
+                                <div class="control-group">
+                                    <label>Camera:</label>
+                                    <select id="cameraSelect" class="select">
+                                        <option value="browser">Browser Webcam</option>
+                                    </select>
+                                </div>
+                                <div class="control-group">
+                                    <label>Interval:</label>
+                                    <input type="number" id="frameInterval" value="400" min="100" max="2000" step="100" class="input">
+                                    <span class="input-suffix">ms</span>
+                                </div>
+                            </div>
+                            
+                            <div class="controls-row">
+                                <button class="btn btn-primary" id="startVideoBtn">Start Recording</button>
+                                <button class="btn btn-danger" id="stopVideoBtn" style="display: none;">Stop Recording</button>
+                                <button class="btn btn-sm" id="pauseVideoBtn" style="display: none;">Pause</button>
+                            </div>
+                            
+                            <div class="progress-container">
+                                <div class="progress">
+                                    <div class="progress-bar" id="videoProgress" style="width: 0%"></div>
+                                </div>
+                                <div class="progress-info">
+                                    <span id="sessionCount">Session: 0</span>
+                                    <span id="videoTimer">00:00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Emotion Telemetry Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>😊 Emotion Telemetry</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="emotion-display-large">
+                                <div class="emotion-label-large" id="currentEmotion">-</div>
+                                <div class="confidence-display">
+                                    <span class="confidence-label">Confidence:</span>
+                                    <span class="confidence-value" id="currentConfidence">0%</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Emotion Timeline Chart -->
+                            <div class="chart-card">
+                                <h3>Emotion Confidence Timeline</h3>
+                                <canvas id="emotionChart"></canvas>
+                            </div>
+                            
+                            <!-- Current Emotion Distribution (Stacked Histogram) -->
+                            <div class="chart-card">
+                                <h3>Emotion Confidence Stacked Histogram</h3>
+                                <canvas id="emotionBars"></canvas>
+                            </div>
+                            
+                            <!-- Multi-Series Emotion Timeline -->
+                            <div class="chart-card">
+                                <h3>All Emotions Timeline</h3>
+                                <canvas id="emotionMultiChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- Session Summary and AU Analytics -->
+                <div class="grid two">
+                    <!-- Session Summary -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>📈 Session Summary</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-card">
+                                <h3>Emotion Distribution</h3>
+                                <canvas id="emotionPie"></canvas>
+                            </div>
+                            <div class="summary-stats" id="summaryStats">
+                                <div class="stat-item">
+                                    <span class="stat-label">Duration:</span>
+                                    <span class="stat-value" id="summaryDuration">0s</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Avg Confidence:</span>
+                                    <span class="stat-value" id="summaryAvgConfidence">0%</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Mood Changes:</span>
+                                    <span class="stat-value" id="summaryMoodChanges">0</span>
+                                </div>
+                            </div>
+                            <div class="emotion-changes-log" id="emotionChangesLog">
+                                <h4>Emotion Changes</h4>
+                                <div class="log-entries" id="logEntries"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- HSEmotion Model Dashboard -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>🤖 HSEmotion Model Dashboard</h2>
+                            <div class="card-actions">
+                                <button class="btn btn-sm" id="refreshModelStatusBtn">Refresh</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <!-- Model Status -->
+                            <div class="model-status-section">
+                                <h3>📊 Model Status</h3>
+                                <div class="model-status-grid" id="modelStatusGrid">
+                                    <div class="status-item">
+                                        <span class="status-label">Status:</span>
+                                        <span class="status-value" id="modelStatus">Checking...</span>
+                                    </div>
+                                    <div class="status-item">
+                                        <span class="status-label">Model:</span>
+                                        <span class="status-value" id="modelName">HSEmotion</span>
+                                    </div>
+                                    <div class="status-item">
+                                        <span class="status-label">Architecture:</span>
+                                        <span class="status-value" id="modelArchitecture">EfficientNet-B0</span>
+                                    </div>
+                                    <div class="status-item">
+                                        <span class="status-label">Device:</span>
+                                        <span class="status-value" id="modelDevice">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Model Performance -->
+                            <div class="model-performance-section">
+                                <h3>⚡ Performance Metrics</h3>
+                                <div class="performance-grid" id="modelPerformanceGrid">
+                                    <div class="perf-item">
+                                        <span class="perf-label">Accuracy:</span>
+                                        <span class="perf-value" id="modelAccuracy">85-90%</span>
+                                    </div>
+                                    <div class="perf-item">
+                                        <span class="perf-label">Inference Time:</span>
+                                        <span class="perf-value" id="modelInferenceTime">-</span>
+                                    </div>
+                                    <div class="perf-item">
+                                        <span class="perf-label">FPS:</span>
+                                        <span class="perf-value" id="modelFPS">-</span>
+                                    </div>
+                                    <div class="perf-item">
+                                        <span class="perf-label">Total Frames:</span>
+                                        <span class="perf-value" id="modelTotalFrames">0</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Model Details -->
+                            <div class="model-details-section">
+                                <h3>🔍 Model Details</h3>
+                                <div class="details-list" id="modelDetailsList">
+                                    <div class="detail-item">
+                                        <span class="detail-label">Model Name:</span>
+                                        <span class="detail-value">enet_b0_8_best_afew</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Dataset:</span>
+                                        <span class="detail-value">AffectNet</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Emotions:</span>
+                                        <span class="detail-value">8 (Anger, Contempt, Disgust, Fear, Happiness, Neutral, Sadness, Surprise)</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Face Detection:</span>
+                                        <span class="detail-value">OpenCV Haar Cascade</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Pattern:</span>
+                                        <span class="detail-value">Singleton (loaded once, reused)</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Thread-Safe:</span>
+                                        <span class="detail-value">Yes</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Model Comparison -->
+                            <div class="model-comparison-section">
+                                <h3>📈 Model Comparison</h3>
+                                <div class="comparison-table" id="modelComparisonTable">
+                                    <table class="comparison-table-inner">
+                                        <thead>
+                                            <tr>
+                                                <th>Metric</th>
+                                                <th>HSEmotion</th>
+                                                <th>Lightweight</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>Accuracy</td>
+                                                <td class="value-highlight">85-90%</td>
+                                                <td>75-82%</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Speed (CPU)</td>
+                                                <td>100-200ms</td>
+                                                <td class="value-highlight">50-100ms</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Model Size</td>
+                                                <td>~20MB</td>
+                                                <td class="value-highlight">~8MB</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Memory</td>
+                                                <td>~300MB</td>
+                                                <td class="value-highlight">~150MB</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AU-Based Reasoning -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2>🧠 AU-Based Emotion Reasoning</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="au-reasoning" id="auReasoning">
+                            <p class="reasoning-text">No analysis yet. Start recording to see AU-based reasoning.</p>
+                        </div>
+                        <div class="top-aus-display" id="topAUsDisplay">
+                            <!-- Top AUs will be displayed here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audio Tab -->
+            <div class="tab-content" id="audioTab">
+                <div class="grid two">
+                    <!-- Audio Input Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>🎤 Audio Input</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="audio-mode-selector">
+                                <button class="mode-btn active" id="audioModeRecord" data-mode="record">
+                                    <span class="mode-icon">🎙️</span>
+                                    <span>Live Recording</span>
+                                </button>
+                                <button class="mode-btn" id="audioModeUpload" data-mode="upload">
+                                    <span class="mode-icon">📁</span>
+                                    <span>File Upload</span>
+                                </button>
+                            </div>
+                            
+                            <!-- Recording Mode -->
+                            <div class="audio-mode-content active" id="recordModeContent">
+                                <div class="control-group">
+                                    <label>Microphone:</label>
+                                    <select id="micSelect" class="select">
+                                        <option value="default">Default Microphone</option>
+                                    </select>
+                                </div>
+                                <div class="control-group">
+                                    <label>Recording Duration:</label>
+                                    <input type="range" id="recordingDuration" min="1" max="60" value="5" class="slider">
+                                    <span class="slider-value" id="durationValue">5s</span>
+                                </div>
+                                <div class="waveform-container">
+                                    <canvas id="waveformCanvas"></canvas>
+                                </div>
+                                <div class="controls-row">
+                                    <button class="btn btn-primary" id="startAudioBtn">Start Recording</button>
+                                    <button class="btn btn-danger" id="stopAudioBtn" style="display: none;">Stop & Analyze</button>
+                                </div>
+                                <div class="recording-timer" id="recordingTimer" style="display: none;">
+                                    <span>Recording: </span>
+                                    <span id="recordingTime">00:00</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Upload Mode -->
+                            <div class="audio-mode-content" id="uploadModeContent">
+                                <div class="upload-area-audio" id="audioUploadArea">
+                                    <input type="file" id="audioFileInput" accept="audio/*" style="display: none;">
+                                    <div class="upload-content-audio">
+                                        <div class="upload-icon-audio">📁</div>
+                                        <p>Drag & drop audio file here</p>
+                                        <p>or click to browse</p>
+                                        <p class="upload-formats">WAV, MP3, WebM, OGG, M4A</p>
+                                    </div>
+                                </div>
+                                <div class="file-info-audio" id="audioFileInfo" style="display: none;">
+                                    <span id="audioFileName"></span>
+                                    <span id="audioFileSize"></span>
+                                </div>
+                                <button class="btn btn-primary" id="uploadAudioBtn" style="display: none;">Analyze Audio</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Analysis Results Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>📊 Analysis Results</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="results-grid" id="audioResults" style="display: none;">
+                                <!-- Primary Emotion Card -->
+                                <div class="result-card">
+                                    <div class="result-label">Primary Emotion</div>
+                                    <div class="result-value-large" id="audioEmotion">-</div>
+                                </div>
+                                
+                                <!-- Confidence Card -->
+                                <div class="result-card">
+                                    <div class="result-label">Confidence</div>
+                                    <div class="result-value-large" id="audioConfidence">-</div>
+                                </div>
+                                
+                                <!-- Mood Card -->
+                                <div class="result-card">
+                                    <div class="result-label">Mood</div>
+                                    <div class="result-value" id="audioMood">-</div>
+                                </div>
+                                
+                                <!-- Energy Card -->
+                                <div class="result-card">
+                                    <div class="result-label">Energy</div>
+                                    <div class="result-value" id="audioEnergy">-</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Transcript -->
+                            <div class="transcript-section" id="transcriptSection" style="display: none;">
+                                <h3>📝 Transcript</h3>
+                                <div class="transcript-text" id="audioTranscript">-</div>
+                            </div>
+                            
+                            <!-- Overall Vibe -->
+                            <div class="vibe-section" id="vibeSection" style="display: none;">
+                                <h3>💭 Overall Vibe</h3>
+                                <div class="vibe-text" id="audioVibe">-</div>
+                            </div>
+                            
+                            <!-- Additional Metrics -->
+                            <div class="metrics-section" id="metricsSection" style="display: none;">
+                                <h3>📈 Additional Metrics</h3>
+                                <div class="metrics-grid">
+                                    <div class="metric-item">
+                                        <span class="metric-label">Tone:</span>
+                                        <span class="metric-value" id="audioTone">-</span>
+                                    </div>
+                                    <div class="metric-item">
+                                        <span class="metric-label">Intensity:</span>
+                                        <span class="metric-value" id="audioIntensity">-</span>
+                                    </div>
+                                </div>
+                                <div class="key-phrases-section">
+                                    <h4>🔑 Key Phrases</h4>
+                                    <div class="phrase-tags" id="audioKeyPhrases"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- Raw JSON Viewer -->
+                            <div class="json-viewer-section" id="jsonViewerSection" style="display: none;">
+                                <h3>🔍 Raw JSON</h3>
+                                <pre class="json-content" id="audioJson"></pre>
+                            </div>
+                            
+                            <!-- Empty State -->
+                            <div class="empty-state-audio" id="audioEmptyState">
+                                <div class="empty-icon">🎤</div>
+                                <p>Start recording or upload audio to see analysis results</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Diagnostic Panel (Collapsible) -->
+    <div class="diagnostic-panel" id="diagnosticPanel">
+        <button class="diagnostic-toggle" id="diagnosticToggle">🔧 Diagnostics</button>
+        <div class="diagnostic-content" id="diagnosticContent" style="display: none;">
+            <h3>System Diagnostics</h3>
+            <div class="diagnostic-actions">
+                <button class="btn btn-sm" id="checkBackendBtn">Check Backend</button>
+                <button class="btn btn-sm" id="checkCamerasBtn">Check Cameras</button>
+                <button class="btn btn-sm" id="showMacSetupBtn">macOS Setup Help</button>
+            </div>
+            <div class="diagnostic-output" id="diagnosticOutput"></div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js?v=2025-12-10-01"></script>
+</body>
+</html>

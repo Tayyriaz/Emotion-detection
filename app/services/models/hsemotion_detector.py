@@ -115,17 +115,45 @@ class HSEmotionDetector:
         """Check if HSEmotion library is available."""
         return HSEMOTION_AVAILABLE
 
+    # Cache Haar Cascade classifier (load once, reuse)
+    _face_cascade = None
+    
+    @classmethod
+    def _get_face_cascade(cls):
+        """Get cached Haar Cascade classifier."""
+        if cls._face_cascade is None:
+            cls._face_cascade = cv2.CascadeClassifier(
+                cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+            )
+        return cls._face_cascade
+    
     def _detect_face_simple(self, image: np.ndarray) -> Optional[tuple]:
         """
         Simple face detection using OpenCV Haar Cascade.
+        Optimized: Resize large images first for faster detection.
         Returns (x1, y1, x2, y2) bounding box or None.
         """
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
+        # Resize large images for faster face detection (max 800px width)
+        # This significantly speeds up detection on large images
+        original_shape = image.shape
+        max_dimension = 800
+        scale = 1.0
+        
+        if image.shape[1] > max_dimension or image.shape[0] > max_dimension:
+            scale = max_dimension / max(image.shape[1], image.shape[0])
+            new_width = int(image.shape[1] * scale)
+            new_height = int(image.shape[0] * scale)
+            image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        
+        # Convert to grayscale (works for both RGB and BGR)
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY if image.shape[2] == 3 else cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        face_cascade = self._get_face_cascade()  # Use cached classifier
         faces = face_cascade.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)
+            gray, scaleFactor=1.2, minNeighbors=4, minSize=(30, 30)  # Faster detection params
         )
         
         if len(faces) == 0:
@@ -134,6 +162,14 @@ class HSEmotionDetector:
         # Return largest face
         largest = max(faces, key=lambda f: f[2] * f[3])
         x, y, w, h = largest
+        
+        # Scale back to original image size if image was resized
+        if scale < 1.0:
+            x = int(x / scale)
+            y = int(y / scale)
+            w = int(w / scale)
+            h = int(h / scale)
+        
         # Convert NumPy int32 to Python int for JSON serialization
         return (int(x), int(y), int(x + w), int(y + h))
 
