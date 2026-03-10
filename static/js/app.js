@@ -21,11 +21,14 @@
         duration: 0,
         pollId: null,
         timerId: null,
+        canvasUpdateId: null,  // Continuous canvas update loop
         useBrowserWebcam: true,
         sessionCount: 0,
         timeline: [],
         emotionHistory: [],
-        auHistory: []
+        auHistory: [],
+        ws: null,  // WebSocket connection
+        lastBbox: null  // Last bounding box for continuous drawing
     };
 
     const audioState = {
@@ -757,6 +760,15 @@
             videoState.emotionHistory = [];
             videoState.auHistory = [];
             
+            // Connect WebSocket for real-time analysis (better for Render)
+            try {
+                await connectVideoWebSocket();
+                console.log('✅ WebSocket connected, starting frame capture');
+            } catch (error) {
+                console.warn('⚠️ WebSocket connection failed, using HTTP fallback:', error);
+                // Continue with HTTP fallback
+            }
+            
             // Update UI
             $('#startVideoBtn').style.display = 'none';
             $('#stopVideoBtn').style.display = 'inline-flex';
@@ -765,14 +777,20 @@
             $('#videoStatus').className = 'badge badge-live';
             $('#sessionCount').textContent = `Session: ${videoState.sessionCount}`;
             
-            // Start polling
+            // Start polling (faster for real-time updates)
+            const frameInterval = parseInt($('#frameInterval')?.value || 200);
             videoState.pollId = setInterval(() => {
                 if (videoState.useBrowserWebcam) {
                     captureAndAnalyzeFrame();
                 } else {
                     updateVideoTelemetry();
                 }
-            }, parseInt($('#frameInterval')?.value || 400));
+            }, frameInterval);
+            
+            // Also start continuous canvas update loop for smooth video display
+            videoState.canvasUpdateId = setInterval(() => {
+                updateVideoCanvas();
+            }, 33); // ~30 FPS for smooth video display
             
             // Start timer
             videoState.timerId = setInterval(() => {
@@ -809,6 +827,22 @@
             videoState.timerId = null;
         }
         
+        // Stop canvas update loop
+        if (videoState.canvasUpdateId) {
+            clearInterval(videoState.canvasUpdateId);
+            videoState.canvasUpdateId = null;
+        }
+        
+        // Close WebSocket connection
+        if (videoState.ws) {
+            if (videoState.ws.readyState === WebSocket.OPEN) {
+                videoState.ws.send(JSON.stringify({ type: 'stop' }));
+            }
+            videoState.ws.close();
+            videoState.ws = null;
+            console.log('🔌 WebSocket closed');
+        }
+        
         // Stop browser webcam
         if (videoState.useBrowserWebcam) {
             stopBrowserWebcam();
@@ -837,7 +871,7 @@
                 } else {
                     updateVideoTelemetry();
                 }
-            }, parseInt($('#frameInterval')?.value || 400));
+            }, parseInt($('#frameInterval')?.value || 200));
             $('#pauseVideoBtn').textContent = 'Pause';
         }
     }
@@ -884,25 +918,127 @@
         }
     }
 
-    async function captureAndAnalyzeFrame() {
+    async function connectVideoWebSocket() {
+        return new Promise((resolve, reject) => {
+            // Use WSS for HTTPS (Render), WS for HTTP (local)
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/video/emotion`;
+            
+            console.log('🔌 Connecting WebSocket to:', wsUrl);
+            
+            const connectionTimeout = setTimeout(() => {
+                if (videoState.ws && videoState.ws.readyState === WebSocket.CONNECTING) {
+                    console.error('❌ WebSocket connection timeout');
+                    videoState.ws.close();
+                    reject(new Error('WebSocket connection timeout'));
+                }
+            }, 10000);
+            
+            videoState.ws = new WebSocket(wsUrl);
+            
+            videoState.ws.onopen = () => {
+                console.log('✅ WebSocket connected successfully');
+                clearTimeout(connectionTimeout);
+                resolve();
+            };
+            
+            videoState.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Handle ping/pong for keepalive
+                    if (data.type === 'ping') {
+                        if (videoState.ws && videoState.ws.readyState === WebSocket.OPEN) {
+                            videoState.ws.send(JSON.stringify({ type: 'pong' }));
+                        }
+                        return;
+                    }
+                    
+                    // Handle emotion updates
+                    if (data.type === 'emotion') {
+                        const video = $('#videoStream');
+                        const videoWidth = video?.videoWidth || 640;
+                        const videoHeight = video?.videoHeight || 480;
+                        handleVideoResult(data, videoWidth, videoHeight);
+                    }
+                } catch (error) {
+                    console.error('❌ Failed to parse WebSocket message:', error);
+                }
+            };
+            
+            videoState.ws.onerror = (error) => {
+                console.error('❌ WebSocket error:', error);
+                clearTimeout(connectionTimeout);
+                reject(error);
+            };
+            
+            videoState.ws.onclose = () => {
+                console.log('🔌 WebSocket closed');
+                // Try to reconnect if still recording
+                if (videoState.isRecording) {
+                    setTimeout(() => {
+                        if (videoState.isRecording) {
+                            connectVideoWebSocket().catch(err => {
+                                console.error('❌ WebSocket reconnection failed:', err);
+                            });
+                        }
+                    }, 2000);
+                }
+            };
+        });
+    }
+
+    // Continuous canvas update for smooth video display
+    function updateVideoCanvas() {
         const video = $('#videoStream');
         const videoCanvas = $('#videoCanvas');
         const videoCtx = videoCanvas?.getContext('2d');
         
         if (!video || video.readyState !== video.HAVE_ENOUGH_DATA || !videoCanvas || !videoCtx) return;
         
-        // Get video dimensions
-        const videoWidth = video.videoWidth || videoCanvas.width;
-        const videoHeight = video.videoHeight || videoCanvas.height;
+        const videoWidth = video.videoWidth || 640;
+        const videoHeight = video.videoHeight || 480;
         
-        // Set canvas size to match video
+        // Set canvas size
         if (videoCanvas.width !== videoWidth || videoCanvas.height !== videoHeight) {
             videoCanvas.width = videoWidth;
             videoCanvas.height = videoHeight;
         }
         
-        // Draw video frame to canvas (will be updated with bounding box in handleVideoResult)
+        // Always redraw video frame first
         videoCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
+        
+        // Redraw bounding box if available
+        if (videoState.lastBbox) {
+            const { bbox, emotion, confidence } = videoState.lastBbox;
+            if (bbox && Array.isArray(bbox) && bbox.length >= 4) {
+                const scaleX = videoWidth / 320;
+                const scaleY = videoHeight / 240;
+                const [x1, y1, x2, y2] = bbox;
+                const scaledX1 = x1 * scaleX;
+                const scaledY1 = y1 * scaleY;
+                const scaledX2 = x2 * scaleX;
+                const scaledY2 = y2 * scaleY;
+                const width = scaledX2 - scaledX1;
+                const height = scaledY2 - scaledY1;
+                
+                // Draw bounding box
+                videoCtx.strokeStyle = '#3b82f6';
+                videoCtx.lineWidth = 3;
+                videoCtx.strokeRect(scaledX1, scaledY1, width, height);
+                
+                // Draw emotion label
+                videoCtx.fillStyle = '#3b82f6';
+                videoCtx.font = 'bold 16px Arial';
+                videoCtx.fillText(`${emotion} (${confidence}%)`, scaledX1, Math.max(scaledY1 - 5, 20));
+            }
+        }
+    }
+
+    async function captureAndAnalyzeFrame() {
+        const video = $('#videoStream');
+        
+        if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return;
         
         // Create temporary canvas for analysis (smaller size for faster processing)
         const tempCanvas = document.createElement('canvas');
@@ -913,6 +1049,29 @@
         
         const imageData = tempCanvas.toDataURL('image/jpeg', 0.6);
         
+        // Send frame via WebSocket if connected, otherwise fallback to HTTP POST
+        if (videoState.ws && videoState.ws.readyState === WebSocket.OPEN) {
+            try {
+                videoState.ws.send(JSON.stringify({
+                    type: 'frame',
+                    image: imageData
+                }));
+            } catch (error) {
+                console.error('❌ WebSocket send error:', error);
+                // Fallback to HTTP POST
+                const videoWidth = video.videoWidth || 640;
+                const videoHeight = video.videoHeight || 480;
+                sendFrameViaHTTP(imageData, videoWidth, videoHeight);
+            }
+        } else {
+            // Fallback to HTTP POST if WebSocket not available
+            const videoWidth = video.videoWidth || 640;
+            const videoHeight = video.videoHeight || 480;
+            sendFrameViaHTTP(imageData, videoWidth, videoHeight);
+        }
+    }
+
+    async function sendFrameViaHTTP(imageData, videoWidth, videoHeight) {
         try {
             const response = await fetch('/video/emotion', {
                 method: 'POST',
@@ -925,7 +1084,7 @@
                 handleVideoResult(data, videoWidth, videoHeight);
             }
         } catch (error) {
-            console.error('Frame analysis error:', error);
+            console.error('❌ Frame analysis error:', error);
         }
     }
 
@@ -944,25 +1103,15 @@
     }
 
     function handleVideoResult(data, videoWidth = null, videoHeight = null) {
-        const videoCanvas = $('#videoCanvas');
-        const videoCtx = videoCanvas?.getContext('2d');
+        // Handle WebSocket response format (data.type === 'emotion')
+        // or HTTP POST response format (data.success)
+        const success = data.success !== undefined ? data.success : (data.type === 'emotion' && data.face_detected);
+        const faceDetected = data.face_detected !== undefined ? data.face_detected : success;
         
-        // Clear previous bounding box
-        if (videoCtx && videoWidth && videoHeight) {
-            // Redraw video frame (will be done in next frame capture)
-        }
-        
-        if (!data.success || !data.face_detected) {
+        if (!success || !faceDetected) {
             $('#currentEmotion').textContent = 'No Face';
             $('#currentConfidence').textContent = '0%';
-            
-            // Clear bounding box if no face
-            if (videoCtx && videoWidth && videoHeight) {
-                const video = $('#videoStream');
-                if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
-                    videoCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
-                }
-            }
+            videoState.lastBbox = null; // Clear bounding box
             return;
         }
         
@@ -972,36 +1121,15 @@
         const aus = data.aus || {};
         const faceBbox = data.face_bbox || null;
         
-        // Draw bounding box on video canvas if available
-        if (videoCtx && faceBbox && Array.isArray(faceBbox) && faceBbox.length >= 4 && videoWidth && videoHeight) {
-            const video = $('#videoStream');
-            if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
-                // Redraw video frame
-                videoCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
-                
-                // Calculate scale factors (bbox is from 320x240 analysis, need to scale to actual video size)
-                const scaleX = videoWidth / 320;
-                const scaleY = videoHeight / 240;
-                
-                // Draw bounding box
-                const [x1, y1, x2, y2] = faceBbox;
-                const scaledX1 = x1 * scaleX;
-                const scaledY1 = y1 * scaleY;
-                const scaledX2 = x2 * scaleX;
-                const scaledY2 = y2 * scaleY;
-                const width = scaledX2 - scaledX1;
-                const height = scaledY2 - scaledY1;
-                
-                // Draw rectangle
-                videoCtx.strokeStyle = '#3b82f6';
-                videoCtx.lineWidth = 3;
-                videoCtx.strokeRect(scaledX1, scaledY1, width, height);
-                
-                // Draw emotion label above bounding box
-                videoCtx.fillStyle = '#3b82f6';
-                videoCtx.font = 'bold 16px Arial';
-                videoCtx.fillText(`${emotion} (${confidence.toFixed(0)}%)`, scaledX1, Math.max(scaledY1 - 5, 20));
-            }
+        // Store bounding box for continuous drawing in canvas update loop
+        if (faceBbox && Array.isArray(faceBbox) && faceBbox.length >= 4) {
+            videoState.lastBbox = {
+                bbox: faceBbox,
+                emotion: emotion,
+                confidence: confidence.toFixed(0)
+            };
+        } else {
+            videoState.lastBbox = null;
         }
         
         // Apply smoothing for stability
