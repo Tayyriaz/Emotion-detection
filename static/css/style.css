@@ -38,6 +38,12 @@ body {
     font-size: 14px;
     line-height: 1.6;
     overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Prevent text selection on mobile for better UX */
+    -webkit-tap-highlight-color: transparent;
+    /* Prevent pull-to-refresh on mobile */
+    overscroll-behavior-y: contain;
 }
 
 /* ============================================
@@ -153,6 +159,14 @@ body {
     align-items: center;
     gap: 8px;
     transition: all 0.2s ease;
+    /* Prevent text selection on mobile */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    /* Prevent double-tap zoom on mobile */
+    touch-action: manipulation;
+    /* Better touch target size */
+    min-height: 44px;
 }
 
 .tab-btn:hover {
@@ -249,6 +263,14 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    /* Prevent text selection on mobile */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    /* Prevent double-tap zoom on mobile */
+    touch-action: manipulation;
+    /* Better touch target size */
+    min-height: 44px;
 }
 
 .btn-primary {
@@ -311,7 +333,17 @@ body {
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text);
-    font-size: 13px;
+    font-size: 16px; /* Prevent zoom on focus on iOS (< 481px) */
+    /* Better touch target size */
+    min-height: 44px;
+}
+
+/* Smaller font size for larger screens */
+@media (min-width: 481px) {
+    .select,
+    .input {
+        font-size: 13px;
+    }
 }
 
 .select:focus,
@@ -378,6 +410,11 @@ body {
     height: 100%;
     pointer-events: none;
     z-index: 10;
+    /* Optimize canvas rendering for mobile */
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    /* Prevent canvas from causing layout shifts */
+    will-change: contents;
 }
 
 .video-placeholder {
@@ -1329,36 +1366,809 @@ body {
 }
 
 /* ============================================
-   RESPONSIVE
+   RESPONSIVE DESIGN
    ============================================ */
+
+/* Tablet and below (1024px) */
+@media (max-width: 1024px) {
+    .main-content {
+        padding: 20px;
+    }
+    
+    .grid.two {
+        grid-template-columns: 1fr;
+    }
+    
+    .model-status-grid,
+    .performance-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .metrics-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Tablet (768px - 1024px) */
 @media (max-width: 960px) {
     .main-content {
         padding: 16px;
     }
     
+    .app-header {
+        padding: 12px 16px;
+    }
+    
     .header-content {
         flex-direction: column;
         align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .brand h1 {
+        font-size: 18px;
     }
     
     .status-badges {
         width: 100%;
+        justify-content: flex-start;
+    }
+    
+    .badge {
+        font-size: 11px;
+        padding: 5px 10px;
+    }
+    
+    .tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        margin-bottom: 20px;
+    }
+    
+    .tabs::-webkit-scrollbar {
+        display: none;
+    }
+    
+    .tab-btn {
+        padding: 10px 16px;
+        font-size: 13px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    
+    .tab-icon {
+        font-size: 16px;
+    }
+    
+    .card-header {
+        padding: 12px 16px;
+    }
+    
+    .card-header h2 {
+        font-size: 15px;
+    }
+    
+    .card-body {
+        padding: 16px;
     }
     
     .controls-row {
         grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .control-group {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+    
+    .control-group label {
+        width: 100%;
     }
     
     .summary-stats {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
     }
     
     .results-grid {
         grid-template-columns: 1fr;
     }
     
+    .emotion-label-large {
+        font-size: 36px;
+    }
+    
+    .confidence-value {
+        font-size: 18px;
+    }
+    
+    .stat-value {
+        font-size: 20px;
+    }
+    
+    .result-value-large {
+        font-size: 28px;
+    }
+    
+    .result-value {
+        font-size: 18px;
+    }
+    
+    .au-bar {
+        grid-template-columns: 120px 1fr 50px;
+        gap: 8px;
+    }
+    
     .diagnostic-content {
         width: calc(100vw - 40px);
+        max-width: 400px;
         right: -20px;
+    }
+    
+    .chart-card canvas {
+        max-height: 200px;
+    }
+}
+
+/* Mobile (480px - 768px) */
+@media (max-width: 768px) {
+    body {
+        font-size: 13px;
+    }
+    
+    .main-content {
+        padding: 12px;
+    }
+    
+    .app-header {
+        padding: 10px 12px;
+    }
+    
+    .brand {
+        gap: 8px;
+    }
+    
+    .logo {
+        font-size: 24px;
+    }
+    
+    .brand h1 {
+        font-size: 16px;
+    }
+    
+    .status-badges {
+        gap: 6px;
+    }
+    
+    .badge {
+        font-size: 10px;
+        padding: 4px 8px;
+    }
+    
+    .tabs {
+        margin-bottom: 16px;
+        gap: 4px;
+    }
+    
+    .tab-btn {
+        padding: 8px 12px;
+        font-size: 12px;
+        gap: 6px;
+    }
+    
+    .tab-label {
+        display: none;
+    }
+    
+    .tab-icon {
+        font-size: 18px;
+    }
+    
+    .card {
+        border-radius: 10px;
+    }
+    
+    .card-header {
+        padding: 10px 12px;
+    }
+    
+    .card-header h2 {
+        font-size: 14px;
+    }
+    
+    .card-body {
+        padding: 12px;
+    }
+    
+    .btn {
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+    
+    .btn-sm {
+        padding: 5px 10px;
+        font-size: 11px;
+    }
+    
+    .video-display-container {
+        border-radius: 6px;
+        margin-bottom: 12px;
+    }
+    
+    .emotion-display-large {
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    
+    .emotion-label-large {
+        font-size: 32px;
+        margin-bottom: 8px;
+    }
+    
+    .confidence-display {
+        gap: 6px;
+    }
+    
+    .confidence-value {
+        font-size: 16px;
+    }
+    
+    .summary-stats {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    
+    .stat-item {
+        padding: 12px;
+    }
+    
+    .stat-value {
+        font-size: 18px;
+    }
+    
+    .chart-card {
+        margin-bottom: 16px;
+    }
+    
+    .chart-card h3 {
+        font-size: 12px;
+        margin-bottom: 10px;
+    }
+    
+    .chart-card canvas {
+        max-height: 180px;
+    }
+    
+    .au-bars-container {
+        max-height: 300px;
+    }
+    
+    .au-bar {
+        grid-template-columns: 100px 1fr 45px;
+        gap: 6px;
+        padding: 6px 0;
+    }
+    
+    .au-bar-label {
+        font-size: 11px;
+    }
+    
+    .au-bar-value {
+        font-size: 11px;
+    }
+    
+    #auHeatmap {
+        height: 250px;
+    }
+    
+    .audio-mode-selector {
+        gap: 6px;
+    }
+    
+    .mode-btn {
+        padding: 10px;
+        font-size: 12px;
+    }
+    
+    .mode-icon {
+        font-size: 20px;
+    }
+    
+    .waveform-container {
+        height: 80px;
+        margin-bottom: 12px;
+    }
+    
+    .upload-area-audio {
+        padding: 30px 20px;
+    }
+    
+    .upload-icon-audio {
+        font-size: 40px;
+    }
+    
+    .file-info-audio {
+        padding: 10px;
+        font-size: 12px;
+    }
+    
+    .recording-timer {
+        font-size: 16px;
+    }
+    
+    .transcript-section,
+    .vibe-section,
+    .metrics-section,
+    .json-viewer-section,
+    .emotion-details-section {
+        margin-bottom: 16px;
+        padding-top: 16px;
+    }
+    
+    .transcript-text,
+    .vibe-text {
+        padding: 12px;
+        font-size: 13px;
+    }
+    
+    .metric-item {
+        padding: 10px;
+    }
+    
+    .metric-label {
+        font-size: 11px;
+    }
+    
+    .metric-value {
+        font-size: 13px;
+    }
+    
+    .phrase-tag {
+        padding: 5px 10px;
+        font-size: 11px;
+    }
+    
+    .json-content {
+        padding: 12px;
+        font-size: 11px;
+        max-height: 300px;
+    }
+    
+    .empty-state-audio {
+        padding: 40px 16px;
+    }
+    
+    .empty-icon {
+        font-size: 48px;
+    }
+    
+    .image-preview-container img {
+        max-height: 250px;
+    }
+    
+    .emotion-score-item {
+        padding: 10px;
+    }
+    
+    .score-label,
+    .score-value {
+        font-size: 13px;
+    }
+    
+    .model-status-section,
+    .model-performance-section,
+    .model-details-section,
+    .model-comparison-section {
+        margin-bottom: 16px;
+        padding-bottom: 16px;
+    }
+    
+    .status-item,
+    .perf-item {
+        padding: 10px;
+    }
+    
+    .status-label,
+    .perf-label,
+    .status-value,
+    .perf-value {
+        font-size: 12px;
+    }
+    
+    .detail-item {
+        padding: 8px 10px;
+    }
+    
+    .detail-label {
+        font-size: 12px;
+        min-width: 100px;
+    }
+    
+    .detail-value {
+        font-size: 12px;
+    }
+    
+    .comparison-table-inner {
+        font-size: 12px;
+    }
+    
+    .comparison-table-inner th,
+    .comparison-table-inner td {
+        padding: 8px;
+    }
+    
+    .diagnostic-panel {
+        bottom: 10px;
+        right: 10px;
+    }
+    
+    .diagnostic-toggle {
+        padding: 10px 16px;
+        font-size: 12px;
+    }
+    
+    .diagnostic-content {
+        bottom: 50px;
+        width: calc(100vw - 20px);
+        max-width: calc(100vw - 20px);
+        right: -10px;
+        padding: 16px;
+    }
+    
+    .diagnostic-content h3 {
+        font-size: 13px;
+        margin-bottom: 12px;
+    }
+    
+    .diagnostic-output {
+        font-size: 11px;
+        max-height: 250px;
+    }
+}
+
+/* Small Mobile (< 480px) */
+@media (max-width: 480px) {
+    body {
+        font-size: 12px;
+    }
+    
+    .main-content {
+        padding: 8px;
+    }
+    
+    .app-header {
+        padding: 8px 10px;
+    }
+    
+    .brand h1 {
+        font-size: 14px;
+    }
+    
+    .logo {
+        font-size: 20px;
+    }
+    
+    .status-badges {
+        gap: 4px;
+    }
+    
+    .badge {
+        font-size: 9px;
+        padding: 3px 6px;
+    }
+    
+    .tabs {
+        margin-bottom: 12px;
+    }
+    
+    .tab-btn {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+    
+    .tab-icon {
+        font-size: 16px;
+    }
+    
+    .card-header {
+        padding: 8px 10px;
+    }
+    
+    .card-header h2 {
+        font-size: 13px;
+    }
+    
+    .card-body {
+        padding: 10px;
+    }
+    
+    .btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+    
+    .btn-sm {
+        padding: 4px 8px;
+        font-size: 10px;
+    }
+    
+    .controls-row {
+        gap: 10px;
+    }
+    
+    .control-group {
+        gap: 4px;
+    }
+    
+    .select,
+    .input {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+    
+    .input-suffix {
+        font-size: 11px;
+    }
+    
+    .slider-value {
+        min-width: 35px;
+        font-size: 11px;
+    }
+    
+    .emotion-display-large {
+        padding: 12px;
+        margin-bottom: 12px;
+    }
+    
+    .emotion-label-large {
+        font-size: 28px;
+    }
+    
+    .confidence-value {
+        font-size: 14px;
+    }
+    
+    .stat-item {
+        padding: 10px;
+    }
+    
+    .stat-label {
+        font-size: 11px;
+    }
+    
+    .stat-value {
+        font-size: 16px;
+    }
+    
+    .chart-card h3 {
+        font-size: 11px;
+    }
+    
+    .chart-card canvas {
+        max-height: 150px;
+    }
+    
+    .au-bar {
+        grid-template-columns: 80px 1fr 40px;
+        gap: 4px;
+        padding: 5px 0;
+    }
+    
+    .au-bar-label {
+        font-size: 10px;
+    }
+    
+    .au-bar-value {
+        font-size: 10px;
+    }
+    
+    #auHeatmap {
+        height: 200px;
+    }
+    
+    .mode-btn {
+        padding: 8px;
+        font-size: 11px;
+    }
+    
+    .mode-icon {
+        font-size: 18px;
+    }
+    
+    .waveform-container {
+        height: 60px;
+    }
+    
+    .upload-area-audio {
+        padding: 20px 12px;
+    }
+    
+    .upload-icon-audio {
+        font-size: 32px;
+    }
+    
+    .file-info-audio {
+        padding: 8px;
+        font-size: 11px;
+    }
+    
+    .recording-timer {
+        font-size: 14px;
+    }
+    
+    .result-value-large {
+        font-size: 24px;
+    }
+    
+    .result-value {
+        font-size: 16px;
+    }
+    
+    .transcript-text,
+    .vibe-text {
+        padding: 10px;
+        font-size: 12px;
+    }
+    
+    .metric-item {
+        padding: 8px;
+    }
+    
+    .metric-label {
+        font-size: 10px;
+    }
+    
+    .metric-value {
+        font-size: 12px;
+    }
+    
+    .phrase-tag {
+        padding: 4px 8px;
+        font-size: 10px;
+    }
+    
+    .json-content {
+        padding: 10px;
+        font-size: 10px;
+        max-height: 250px;
+    }
+    
+    .empty-state-audio {
+        padding: 30px 12px;
+    }
+    
+    .empty-icon {
+        font-size: 40px;
+    }
+    
+    .image-preview-container img {
+        max-height: 200px;
+    }
+    
+    .emotion-score-item {
+        padding: 8px;
+    }
+    
+    .score-label,
+    .score-value {
+        font-size: 12px;
+    }
+    
+    .status-item,
+    .perf-item {
+        padding: 8px;
+    }
+    
+    .status-label,
+    .perf-label,
+    .status-value,
+    .perf-value {
+        font-size: 11px;
+    }
+    
+    .detail-item {
+        padding: 6px 8px;
+    }
+    
+    .detail-label {
+        font-size: 11px;
+        min-width: 80px;
+    }
+    
+    .detail-value {
+        font-size: 11px;
+    }
+    
+    .comparison-table-inner {
+        font-size: 11px;
+    }
+    
+    .comparison-table-inner th,
+    .comparison-table-inner td {
+        padding: 6px;
+    }
+    
+    .diagnostic-toggle {
+        padding: 8px 12px;
+        font-size: 11px;
+    }
+    
+    .diagnostic-content {
+        bottom: 45px;
+        padding: 12px;
+    }
+    
+    .diagnostic-content h3 {
+        font-size: 12px;
+    }
+    
+    .diagnostic-output {
+        font-size: 10px;
+        padding: 10px;
+    }
+    
+    .progress-info {
+        font-size: 11px;
+    }
+    
+    .log-entry {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+    
+    .log-entry-time {
+        font-size: 10px;
+    }
+}
+
+/* Landscape orientation on mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+    .app-header {
+        padding: 8px 12px;
+    }
+    
+    .brand h1 {
+        font-size: 15px;
+    }
+    
+    .main-content {
+        padding: 10px;
+    }
+    
+    .video-display-container {
+        aspect-ratio: 16 / 9;
+        max-height: 50vh;
+    }
+    
+    .chart-card canvas {
+        max-height: 150px;
+    }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+    .btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    
+    .tab-btn {
+        min-height: 44px;
+    }
+    
+    .mode-btn {
+        min-height: 60px;
+    }
+    
+    .select,
+    .input {
+        min-height: 44px;
+    }
+    
+    .slider {
+        min-height: 44px;
     }
 }
