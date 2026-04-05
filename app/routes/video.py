@@ -18,7 +18,6 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.services.models.hsemotion_detector import HSEmotionDetector
-from app.services.models.yolo_detector import YOLOPetDetector
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -157,53 +156,37 @@ async def video_emotion_websocket(websocket: WebSocket):
                 if not image_data:
                     continue
 
-                # Optional pet detection flag — False by default so existing
-                # clients are completely unaffected
-                detect_pets: bool = bool(message.get("detect_pets", False))
-
                 # Decode and process frame
                 frame_count += 1
-                
+
                 # Skip frames for performance (configurable)
                 if frame_count % settings.VIDEO_FRAME_SKIP != 0:
                     continue
-                
+
                 start_time = time.time()
                 image = _decode_base64_image(image_data)
-                
+
                 # Analyze human emotion
                 result = detector.analyze_image(image)
-                
+
                 face_detected = result.get("face_detected", False)
                 emotions = result.get("emotions", {}) or {}
 
-                # Optional: run YOLO pet detection alongside human emotion
-                pets: list = []
-                if detect_pets and YOLOPetDetector.is_available():
-                    try:
-                        pets = YOLOPetDetector.instance().detect(image)
-                    except Exception as _pet_exc:
-                        logger.debug(f"Pet detection in video frame failed: {_pet_exc}")
-
                 if face_detected and emotions:
-                    # Get dominant emotion
                     emotion = result.get("emotion", "neutral")
                     confidence = result.get("confidence", 0.0)
-                    
-                    # Only send update if emotion changed significantly
+
                     confidence_delta = abs(confidence - last_confidence)
                     if emotion != last_emotion or confidence_delta > settings.VIDEO_MIN_CONFIDENCE_DELTA:
                         last_emotion = emotion
                         last_confidence = confidence
-                        
+
                         inference_time = (time.time() - start_time) * 1000
-                        
-                        # Send emotion update with bounding box
+
                         face_bbox = result.get("face_bbox")
-                        # Convert NumPy int32 to Python int for JSON serialization
                         if face_bbox and isinstance(face_bbox, tuple):
                             face_bbox = [int(coord) for coord in face_bbox]
-                        
+
                         sent = await safe_send({
                             "type": "emotion",
                             "success": True,
@@ -211,14 +194,12 @@ async def video_emotion_websocket(websocket: WebSocket):
                             "confidence": round(confidence, 3),
                             "emotions": {k: round(v, 3) for k, v in emotions.items()},
                             "face_detected": True,
-                            "face_bbox": face_bbox,  # [x1, y1, x2, y2] format (list of ints)
+                            "face_bbox": face_bbox,
                             "inference_time_ms": round(inference_time, 1),
-                            "pets": pets,  # empty list when detect_pets=False
                         })
                         if not sent:
                             break
                 else:
-                    # No face detected
                     if last_emotion is not None:
                         sent = await safe_send({
                             "type": "emotion",
@@ -226,7 +207,6 @@ async def video_emotion_websocket(websocket: WebSocket):
                             "emotion": "neutral",
                             "confidence": 0.0,
                             "face_detected": False,
-                            "pets": pets,
                         })
                         if not sent:
                             break

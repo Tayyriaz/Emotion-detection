@@ -20,7 +20,16 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy models directory first (includes pre-downloaded model file)
+# Pre-download the animal emotion ViT model at build time
+# This bakes the weights into the image so Render starts instantly
+ENV HF_HUB_DISABLE_SYMLINKS_WARNING=1
+RUN python -c "\
+from transformers import pipeline; \
+print('Downloading dima806/pets_facial_expression_detection...'); \
+pipeline('image-classification', model='dima806/pets_facial_expression_detection', device='cpu'); \
+print('Model cached successfully.')"
+
+# Copy models directory first (includes pre-downloaded HSEmotion weights)
 COPY models/ models/
 
 # Copy application code

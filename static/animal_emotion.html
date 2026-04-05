@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Animal Emotion Detection — detect happiness, sadness, anger and more in cats and dogs">
+    <title>🐾 Animal Emotion Detection</title>
+    <link rel="stylesheet" href="/static/css/animal_emotion.css">
+</head>
+<body>
+
+<!-- NAVIGATION -->
+<nav class="navbar">
+    <div class="navbar-inner">
+        <a href="/" class="nav-brand">🎭 Emotion &amp; Animal Analyzer</a>
+        <div class="nav-links">
+            <a href="/"       class="nav-link">🎭 Dashboard</a>
+            <a href="/image"  class="nav-link">📷 Image</a>
+            <a href="/video"  class="nav-link">🎥 Video</a>
+            <a href="/audio"  class="nav-link">🎤 Audio</a>
+            <a href="/animal" class="nav-link active">🐾 Animals</a>
+        </div>
+    </div>
+</nav>
+
+<!-- PAGE -->
+<div class="container">
+
+    <div class="page-header">
+        <h1>🐾 Animal Emotion Detection</h1>
+        <p>Upload a photo of your cat or dog — AI will detect their emotion instantly</p>
+    </div>
+
+    <div class="grid-two">
+
+        <!-- ── LEFT: Input ── -->
+        <div class="card">
+            <div class="card-title">📁 Upload Image</div>
+
+            <div class="upload-zone" id="uploadZone">
+                <input type="file" id="fileInput" accept="image/jpeg,image/png" style="display:none">
+                <div class="upload-zone-icon">🖼️</div>
+                <p class="upload-zone-primary">Drag &amp; drop image here</p>
+                <p class="upload-zone-secondary">or click to browse</p>
+                <p class="upload-zone-formats">JPEG · PNG · max 5 MB</p>
+            </div>
+
+            <div class="file-strip" id="fileStrip">
+                <span class="file-strip-name" id="fileStripName"></span>
+                <span class="file-strip-size" id="fileStripSize"></span>
+            </div>
+
+            <div class="preview-wrap" id="previewWrap">
+                <img id="previewImg" alt="Preview">
+            </div>
+
+            <button class="btn btn-primary" id="analyzeBtn" disabled>
+                🔍 Detect Emotion
+            </button>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p class="loading-text">Running ViT model inference…</p>
+            </div>
+
+            <div class="banner banner-error" id="errorBanner"></div>
+        </div>
+
+        <!-- ── RIGHT: Results ── -->
+        <div class="card">
+            <div class="card-title">😊 Emotion Result</div>
+
+            <!-- empty state -->
+            <div class="results-empty" id="resultsEmpty">
+                <div class="results-empty-icon">🐾</div>
+                <p>Upload a cat or dog photo to detect their emotion</p>
+            </div>
+
+            <!-- result card -->
+            <div class="result-card" id="resultCard">
+
+                <!-- Hero emotion display -->
+                <div class="emotion-hero">
+                    <div class="emotion-hero-emoji" id="heroEmoji">🐾</div>
+                    <div class="emotion-hero-label"  id="heroLabel">—</div>
+                    <div class="emotion-hero-conf"   id="heroConf">Confidence: —</div>
+                    <div class="conf-bar">
+                        <div class="conf-fill" id="confFill" style="width:0%"></div>
+                    </div>
+                </div>
+
+                <!-- Full probability distribution -->
+                <div>
+                    <div class="distribution-title">Full Emotion Distribution</div>
+                    <div id="distList"></div>
+                </div>
+
+                <!-- Meta info -->
+                <div class="meta-row">
+                    <span class="meta-label">Model:</span>
+                    <span id="metaModel">vit-animal-emotion</span>
+                    &nbsp;·&nbsp;
+                    <span class="meta-label">Time:</span>
+                    <span id="metaTime">—</span>
+                </div>
+
+            </div><!-- /result-card -->
+        </div>
+
+    </div><!-- /grid-two -->
+</div><!-- /container -->
+
+<script src="/static/js/animal_emotion_standalone.js"></script>
+</body>
+</html>

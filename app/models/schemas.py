@@ -4,58 +4,45 @@ from pydantic import BaseModel
 
 
 class ImageEmotionResponse(BaseModel):
-    """
-    Response model for single image emotion analysis.
-
-    Mirrors the contract defined in FUNCTION1_SINGLE_IMAGE_EMOTION_FLOW.md.
-    """
+    """Response model for single image emotion analysis (HSEmotion)."""
 
     success: bool
     emotion: str
     confidence: float
-    emotions: Dict[str, float] = {}  # All emotion scores (for visualization)
+    emotions: Dict[str, float] = {}
     aus: Dict[str, float]
     backend: str
 
 
 class AudioEmotionResponse(BaseModel):
-    """
-    Response model for audio emotion analysis.
-    
-    Returns 7 emotion categories with confidence scores and additional metadata.
-    """
+    """Response model for audio emotion analysis (Groq Whisper + LLaMA)."""
 
     success: bool
     emotion: str
     confidence: float
-    emotions: Dict[str, float]  # All 7 emotion scores
+    emotions: Dict[str, float]
     backend: str
-    transcript: str = ""  # Transcription text
-    mood_category: str = ""  # Positive/Negative/Neutral
-    energy_level: str = ""  # High/Medium/Low
-    tone: str = ""  # Casual/Formal/etc
-    emotional_intensity: float = 0.0  # 0.0-1.0
-    key_phrases: list = []  # List of key phrases
-    overall_vibe: str = ""  # Overall description
-    explanation: str = ""  # Detailed explanation
+    transcript: str = ""
+    mood_category: str = ""
+    energy_level: str = ""
+    tone: str = ""
+    emotional_intensity: float = 0.0
+    key_phrases: list = []
+    overall_vibe: str = ""
+    explanation: str = ""
 
 
-class PetDetection(BaseModel):
-    """Single pet detection result (one bounding box)."""
-
-    label: str  # "cat" or "dog"
-    confidence: float  # 0.0–1.0
-    bbox: List[int]  # [x1, y1, x2, y2] in original image pixels
-
-
-class PetDetectionResponse(BaseModel):
+class AnimalEmotionResponse(BaseModel):
     """
-    Response model for pet (cat/dog) detection from a single image.
+    Response model for animal (cat/dog) emotion detection.
 
-    success=False means no pets were detected or the image could not be decoded.
+    Uses milad-mousavi/vit-base-patch16-224-animal-emotion-recognition
+    via Hugging Face transformers pipeline.
     """
 
     success: bool
-    count: int  # Total number of pets detected
-    detections: List[PetDetection]  # One entry per bounding box
-    backend: str = "yolo"
+    label: str                        # Top predicted emotion label
+    confidence_score: float           # 0.0–1.0
+    timestamp: str                    # ISO-8601 UTC timestamp
+    all_emotions: Dict[str, float] = {}  # Full probability distribution
+    backend: str = "vit-animal-emotion"
