@@ -89,10 +89,17 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.error(f"❌ HSEmotion init failed: {exc}", exc_info=True)
 
-        # --- Animal ViT (lazy) ---
-        logger.info(
-            "ℹ️ Animal emotion ViT loads on first /api/animal/analyze request (lazy)"
-        )
+        # --- Animal ViT (eager — pre-warmed so first request is fast) ---
+        try:
+            from app.utils.models import AnimalEmotionModel
+
+            if not AnimalEmotionModel.is_available():
+                logger.warning("⚠️ transformers not installed — animal emotion unavailable")
+            else:
+                AnimalEmotionModel.instance()
+                logger.info("✅ Animal emotion ViT model loaded and warmed up")
+        except Exception as exc:
+            logger.warning(f"⚠️ Animal emotion model failed to load: {exc} — will retry on first request")
 
         logger.info("🚀 Application startup complete")
 
@@ -180,7 +187,7 @@ def create_app() -> FastAPI:
                     "status": "healthy",
                     "available": True,
                     "loaded": False,
-                    "note": "Lazy — loads on first /api/animal/analyze request",
+                    "note": "Not yet loaded — will load on first /api/animal/analyze request",
                     "model": get_settings().ANIMAL_MODEL_NAME,
                 }
         except Exception as exc:
