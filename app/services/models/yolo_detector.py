@@ -70,13 +70,7 @@ class YOLOPetDetector:
 
         try:
             self.model = _YOLO(model_name)
-
-            # Warm-up: run one dummy inference so PyTorch JIT compiles the graph
-            # before the first real request arrives
-            dummy = np.zeros((640, 640, 3), dtype=np.uint8)
-            self.model(dummy, verbose=False)
-
-            logger.info("✅ YOLO pet detection model loaded and warmed up successfully")
+            logger.info("✅ YOLO pet detection model loaded successfully")
         except Exception as exc:
             logger.error(f"Failed to load YOLO model '{model_name}': {exc}", exc_info=True)
             raise

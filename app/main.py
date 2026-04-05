@@ -124,26 +124,9 @@ def create_app() -> FastAPI:
             )
             # Don't crash startup - error will be caught on first request
 
-        # ------------------------------------------------------------------
-        # YOLO Pet Detection model warm-up
-        # ------------------------------------------------------------------
-        try:
-            from app.services.models.yolo_detector import YOLOPetDetector
-
-            if not YOLOPetDetector.is_available():
-                logger.warning(
-                    "⚠️ ultralytics not installed — pet detection unavailable. "
-                    "Install with: pip install ultralytics"
-                )
-            else:
-                # Instantiate singleton (downloads yolov8n.pt on first run)
-                YOLOPetDetector.instance()
-                logger.info("✅ YOLO pet detection model loaded successfully")
-        except Exception as exc:
-            logger.warning(
-                f"⚠️ YOLO pet detection model failed to load: {exc} — "
-                "pet detection endpoints will return 503 until fixed."
-            )
+        # YOLO loads lazily on first /pet/detect request (not on startup)
+        # This keeps startup fast — model downloads in background on first use
+        logger.info("ℹ️ YOLO pet detector will load on first request (lazy init)")
 
         logger.info("🚀 Application startup complete")
 
@@ -225,12 +208,21 @@ def create_app() -> FastAPI:
                     "available": False,
                     "message": "ultralytics not installed. Run: pip install ultralytics",
                 }
-            else:
-                YOLOPetDetector.instance()
+            elif YOLOPetDetector._instance is not None:
+                # Already loaded — report healthy without triggering load
                 report["models"]["yolo_pet"] = {
                     "status": "healthy",
                     "available": True,
                     "loaded": True,
+                    "model": get_settings().PET_MODEL_NAME,
+                }
+            else:
+                # Not yet loaded — lazy, will load on first /pet/detect request
+                report["models"]["yolo_pet"] = {
+                    "status": "healthy",
+                    "available": True,
+                    "loaded": False,
+                    "note": "Lazy — loads on first pet detection request",
                     "model": get_settings().PET_MODEL_NAME,
                 }
         except Exception as exc:
