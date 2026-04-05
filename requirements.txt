@@ -16,3 +16,6 @@ pillow>=9.0.0
 
 # Audio Emotion Detection - Groq API
 groq>=0.9.0
+
+# Pet (Cat/Dog) Detection - YOLO via Ultralytics
+ultralytics>=8.0.0

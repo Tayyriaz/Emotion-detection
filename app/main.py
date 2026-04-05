@@ -22,6 +22,7 @@ from app.config import get_settings
 from app.middleware.request_tracking import RequestTrackingMiddleware
 from app.routes.audio import router as audio_router
 from app.routes.image import router as image_router
+from app.routes.pet import router as pet_router
 from app.routes.video import router as video_router
 from app.utils.logging import configure_logging, get_logger
 from app.utils.metrics import get_metrics
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(image_router)
     app.include_router(video_router)
     app.include_router(audio_router)
+    app.include_router(pet_router)
 
     # Serve static files (frontend HTML, CSS, JS)
     app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -122,6 +124,27 @@ def create_app() -> FastAPI:
             )
             # Don't crash startup - error will be caught on first request
 
+        # ------------------------------------------------------------------
+        # YOLO Pet Detection model warm-up
+        # ------------------------------------------------------------------
+        try:
+            from app.services.models.yolo_detector import YOLOPetDetector
+
+            if not YOLOPetDetector.is_available():
+                logger.warning(
+                    "⚠️ ultralytics not installed — pet detection unavailable. "
+                    "Install with: pip install ultralytics"
+                )
+            else:
+                # Instantiate singleton (downloads yolov8n.pt on first run)
+                YOLOPetDetector.instance()
+                logger.info("✅ YOLO pet detection model loaded successfully")
+        except Exception as exc:
+            logger.warning(
+                f"⚠️ YOLO pet detection model failed to load: {exc} — "
+                "pet detection endpoints will return 503 until fixed."
+            )
+
         logger.info("🚀 Application startup complete")
 
     @app.get("/", response_class=HTMLResponse, summary="Unified frontend page")
@@ -149,6 +172,11 @@ def create_app() -> FastAPI:
         """Serve the image emotion detection page (legacy)."""
         return FileResponse("static/image_emotion.html")
 
+    @app.get("/pet", summary="Pet detection page")
+    async def pet_page():
+        """Serve the standalone pet (cat/dog) detection page."""
+        return FileResponse("static/pet_detection.html")
+
     @app.get("/health", summary="Basic health check")
     async def health_check() -> dict:
         """Basic health check endpoint."""
@@ -157,39 +185,64 @@ def create_app() -> FastAPI:
     @app.get("/health/model", summary="Model health check")
     async def model_health_check() -> dict:
         """
-        Check if emotion detection model is loaded and ready.
-        
-        Returns:
-            Dictionary with model status, device, and availability.
+        Check if all ML models are loaded and ready.
+
+        Returns status for:
+        - HSEmotion (image/video emotion detection)
+        - YOLO (pet cat/dog detection)
         """
+        report: dict = {"models": {}}
+
+        # --- HSEmotion ---
         try:
             from app.services.models.hsemotion_detector import HSEmotionDetector
-            
+
             if not HSEmotionDetector.is_available():
-                return {
+                report["models"]["hsemotion"] = {
                     "status": "unhealthy",
-                    "model": "hsemotion",
                     "available": False,
-                    "message": "HSEmotion library not installed. Install with: pip install hsemotion",
+                    "message": "HSEmotion library not installed. Run: pip install hsemotion",
                 }
-            
-            detector = HSEmotionDetector.instance()
-            
-            return {
-                "status": "healthy",
-                "model": "hsemotion",
-                "available": True,
-                "loaded": True,
-                "device": detector.recognizer.device,
-            }
-                    
+            else:
+                det = HSEmotionDetector.instance()
+                report["models"]["hsemotion"] = {
+                    "status": "healthy",
+                    "available": True,
+                    "loaded": True,
+                    "device": det.recognizer.device,
+                }
         except Exception as exc:
-            logger.error(f"Model health check failed: {exc}", exc_info=True)
-            return {
-                "status": "unhealthy",
-                "model": "hsemotion",
-                "error": str(exc),
-            }
+            logger.error(f"HSEmotion health check failed: {exc}", exc_info=True)
+            report["models"]["hsemotion"] = {"status": "unhealthy", "error": str(exc)}
+
+        # --- YOLO Pet Detector ---
+        try:
+            from app.services.models.yolo_detector import YOLOPetDetector
+
+            if not YOLOPetDetector.is_available():
+                report["models"]["yolo_pet"] = {
+                    "status": "unhealthy",
+                    "available": False,
+                    "message": "ultralytics not installed. Run: pip install ultralytics",
+                }
+            else:
+                YOLOPetDetector.instance()
+                report["models"]["yolo_pet"] = {
+                    "status": "healthy",
+                    "available": True,
+                    "loaded": True,
+                    "model": get_settings().PET_MODEL_NAME,
+                }
+        except Exception as exc:
+            logger.error(f"YOLO health check failed: {exc}", exc_info=True)
+            report["models"]["yolo_pet"] = {"status": "unhealthy", "error": str(exc)}
+
+        # Overall status: healthy only if ALL models are healthy
+        all_healthy = all(
+            v.get("status") == "healthy" for v in report["models"].values()
+        )
+        report["status"] = "healthy" if all_healthy else "degraded"
+        return report
 
     @app.get("/metrics", summary="Request metrics")
     async def get_metrics_endpoint() -> dict:

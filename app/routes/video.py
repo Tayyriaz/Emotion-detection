@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.services.models.hsemotion_detector import HSEmotionDetector
+from app.services.models.yolo_detector import YOLOPetDetector
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -155,7 +156,11 @@ async def video_emotion_websocket(websocket: WebSocket):
                 image_data = message.get("image")
                 if not image_data:
                     continue
-                
+
+                # Optional pet detection flag — False by default so existing
+                # clients are completely unaffected
+                detect_pets: bool = bool(message.get("detect_pets", False))
+
                 # Decode and process frame
                 frame_count += 1
                 
@@ -166,12 +171,20 @@ async def video_emotion_websocket(websocket: WebSocket):
                 start_time = time.time()
                 image = _decode_base64_image(image_data)
                 
-                # Analyze emotion
+                # Analyze human emotion
                 result = detector.analyze_image(image)
                 
                 face_detected = result.get("face_detected", False)
                 emotions = result.get("emotions", {}) or {}
-                
+
+                # Optional: run YOLO pet detection alongside human emotion
+                pets: list = []
+                if detect_pets and YOLOPetDetector.is_available():
+                    try:
+                        pets = YOLOPetDetector.instance().detect(image)
+                    except Exception as _pet_exc:
+                        logger.debug(f"Pet detection in video frame failed: {_pet_exc}")
+
                 if face_detected and emotions:
                     # Get dominant emotion
                     emotion = result.get("emotion", "neutral")
@@ -200,6 +213,7 @@ async def video_emotion_websocket(websocket: WebSocket):
                             "face_detected": True,
                             "face_bbox": face_bbox,  # [x1, y1, x2, y2] format (list of ints)
                             "inference_time_ms": round(inference_time, 1),
+                            "pets": pets,  # empty list when detect_pets=False
                         })
                         if not sent:
                             break
@@ -212,6 +226,7 @@ async def video_emotion_websocket(websocket: WebSocket):
                             "emotion": "neutral",
                             "confidence": 0.0,
                             "face_detected": False,
+                            "pets": pets,
                         })
                         if not sent:
                             break

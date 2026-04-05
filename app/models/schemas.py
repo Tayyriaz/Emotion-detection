@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 from pydantic import BaseModel
 
@@ -38,3 +38,24 @@ class AudioEmotionResponse(BaseModel):
     key_phrases: list = []  # List of key phrases
     overall_vibe: str = ""  # Overall description
     explanation: str = ""  # Detailed explanation
+
+
+class PetDetection(BaseModel):
+    """Single pet detection result (one bounding box)."""
+
+    label: str  # "cat" or "dog"
+    confidence: float  # 0.0–1.0
+    bbox: List[int]  # [x1, y1, x2, y2] in original image pixels
+
+
+class PetDetectionResponse(BaseModel):
+    """
+    Response model for pet (cat/dog) detection from a single image.
+
+    success=False means no pets were detected or the image could not be decoded.
+    """
+
+    success: bool
+    count: int  # Total number of pets detected
+    detections: List[PetDetection]  # One entry per bounding box
+    backend: str = "yolo"

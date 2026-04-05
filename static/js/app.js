@@ -2161,6 +2161,342 @@ macOS Setup Help:
     }
 
     // ============================================
+    // PET DETECTION TAB
+    // ============================================
+    (function initPetTab() {
+        const EMOJI      = { cat: '🐱', dog: '🐶' };
+        const BOX_COLOR  = { cat: '#f97316', dog: '#a855f7' };
+
+        // -- element refs --
+        const uploadArea    = () => $('#petUploadArea');
+        const fileInput     = () => $('#petFileInput');
+        const fileInfo      = () => $('#petFileInfo');
+        const previewWrap   = () => $('#petImagePreviewContainer');
+        const previewImg    = () => $('#petImagePreview');
+        const previewCanvas = () => $('#petPreviewCanvas');
+        const analyzeBtn    = () => $('#petAnalyzeBtn');
+        const loading       = () => $('#petLoading');
+        const emptyState    = () => $('#petEmptyState');
+        const countBadge    = () => $('#petCountBadge');
+        const countLabel    = () => $('#petCountLabel');
+        const countSub      = () => $('#petCountSub');
+        const noPetsBadge   = () => $('#petNoPetsBadge');
+        const detList       = () => $('#petDetectionList');
+        const errorMsg      = () => $('#petErrorMessage');
+
+        // webcam
+        const webcamVideo     = () => $('#petWebcamVideo');
+        const webcamCanvas    = () => $('#petWebcamCanvas');
+        const webcamPH        = () => $('#petWebcamPlaceholder');
+        const startBtn        = () => $('#petStartBtn');
+        const stopBtn         = () => $('#petStopBtn');
+        const statusDot       = () => $('#petStatusDot');
+        const statusTxt       = () => $('#petStatusTxt');
+
+        let selectedFile = null;
+        let petMode      = 'upload'; // 'upload' | 'webcam'
+        let petStream    = null;
+        let petWs        = null;
+        let petLive      = false;
+        let petInterval  = null;
+        let petCtx       = null;
+
+        // -- mode toggle --
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-mode]');
+            if (!btn || !btn.closest('.pet-mode-selector')) return;
+            petMode = btn.dataset.mode;
+            $$('.pet-mode-selector .mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const isUpload = petMode === 'upload';
+            const uc = $('#petUploadContent');
+            const wc = $('#petWebcamContent');
+            if (uc) uc.style.display = isUpload ? '' : 'none';
+            if (wc) wc.style.display = isUpload ? 'none' : '';
+            if (!isUpload && petLive) stopWebcam();
+            clearResults();
+        });
+
+        // -- upload zone --
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('#petUploadArea')) fileInput()?.click();
+        });
+        document.addEventListener('change', (e) => {
+            if (e.target.id === 'petFileInput' && e.target.files.length > 0)
+                handleFile(e.target.files[0]);
+        });
+        document.addEventListener('dragover', (e) => {
+            if (e.target.closest('#petUploadArea')) { e.preventDefault(); uploadArea()?.style && (uploadArea().style.borderColor = 'var(--primary)'); }
+        });
+        document.addEventListener('dragleave', (e) => {
+            if (e.target.closest('#petUploadArea')) { uploadArea()?.style && (uploadArea().style.borderColor = ''); }
+        });
+        document.addEventListener('drop', (e) => {
+            if (!e.target.closest('#petUploadArea')) return;
+            e.preventDefault();
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+        });
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('#petAnalyzeBtn')) runAnalysis();
+            if (e.target.closest('#petStartBtn'))   startWebcam();
+            if (e.target.closest('#petStopBtn'))    stopWebcam();
+        });
+
+        function handleFile(file) {
+            const allowed = ['image/jpeg','image/jpg','image/png','image/webp'];
+            const allowedExts = ['.jpg','.jpeg','.png','.webp'];
+            const ext = '.' + file.name.split('.').pop().toLowerCase();
+            if (!allowed.includes(file.type) && !allowedExts.includes(ext)) {
+                showError('Unsupported format. Use JPG, PNG or WebP.'); return;
+            }
+            if (file.size > 10 * 1024 * 1024) { showError('File too large (max 10 MB).'); return; }
+
+            selectedFile = file;
+            const fi = fileInfo();
+            if (fi) {
+                fi.style.display = 'flex';
+                const fn = $('#petFileName'); if (fn) fn.textContent = file.name;
+                const fs = $('#petFileSize'); if (fs) fs.textContent = formatBytes(file.size);
+            }
+            const ab = analyzeBtn(); if (ab) ab.style.display = '';
+            hideError();
+            clearResults();
+
+            // preview
+            const reader = new FileReader();
+            reader.onload = ev => {
+                const pi = previewImg(); const pw = previewWrap();
+                if (pi) pi.src = ev.target.result;
+                if (pw) pw.style.display = '';
+                clearPreviewCanvas();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function runAnalysis() {
+            if (!selectedFile) return;
+            showLoading(true);
+            hideError();
+            clearResults();
+            try {
+                const form = new FormData();
+                form.append('file', selectedFile);
+                const res = await fetch('/pet/detect', { method: 'POST', body: form });
+                if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || `Error ${res.status}`); }
+                const data = await res.json();
+                renderResults(data.detections || []);
+                const pi = previewImg(); const pc = previewCanvas();
+                if (pi && pc) {
+                    const drawFn = () => drawBoxesOnImage(pc, pi, data.detections || []);
+                    pi.complete ? drawFn() : (pi.onload = drawFn);
+                }
+            } catch(err) {
+                showError(err.message || 'Detection failed.');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // -- webcam --
+        async function startWebcam() {
+            try {
+                petStream = await navigator.mediaDevices.getUserMedia({ video: { width:{ideal:640}, height:{ideal:480} } });
+            } catch(err) {
+                showError(err.name === 'NotAllowedError' ? 'Camera permission denied.' : `Camera error: ${err.message}`);
+                return;
+            }
+            const v = webcamVideo(); const ph = webcamPH();
+            if (v) { v.srcObject = petStream; await v.play(); v.style.display = 'block'; }
+            if (ph) ph.style.display = 'none';
+            petCtx = webcamCanvas()?.getContext('2d');
+            syncCanvas();
+            startBtn() && (startBtn().style.display = 'none');
+            stopBtn()  && (stopBtn().style.display  = '');
+            setStatus('live', 'Live — detecting pets…');
+            hideError(); clearResults();
+            petLive = true;
+            await connectWs();
+            petInterval = setInterval(captureFrame, 300);
+        }
+
+        function stopWebcam() {
+            petLive = false;
+            if (petInterval)  { clearInterval(petInterval); petInterval = null; }
+            if (petWs)        { try { petWs.send(JSON.stringify({type:'stop'})); } catch(_){} petWs.close(); petWs = null; }
+            if (petStream)    { petStream.getTracks().forEach(t => t.stop()); petStream = null; }
+            const v = webcamVideo(); const ph = webcamPH();
+            if (v) { v.srcObject = null; v.style.display = 'none'; }
+            if (ph) ph.style.display = '';
+            startBtn() && (startBtn().style.display = '');
+            stopBtn()  && (stopBtn().style.display  = 'none');
+            setStatus('idle', 'Stopped');
+            clearWebcamCanvas();
+        }
+
+        async function connectWs() {
+            return new Promise((resolve, reject) => {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                petWs = new WebSocket(`${proto}//${location.host}/pet/detect/live`);
+                petWs.onopen  = () => resolve();
+                petWs.onerror = (e) => reject(e);
+                petWs.onmessage = (ev) => {
+                    try {
+                        const msg = JSON.parse(ev.data);
+                        if (msg.type === 'ping') { petWs.send(JSON.stringify({type:'pong'})); return; }
+                        if (msg.type === 'detection') {
+                            renderResults(msg.detections || []);
+                            clearWebcamCanvas();
+                            if (msg.detections?.length) drawBoxesOnWebcam(msg.detections);
+                        }
+                    } catch(_) {}
+                };
+                petWs.onclose = () => {
+                    if (petLive) setTimeout(() => { if (petLive) connectWs().catch(console.error); }, 2000);
+                };
+            });
+        }
+
+        function captureFrame() {
+            const v = webcamVideo();
+            if (!v || v.readyState < v.HAVE_ENOUGH_DATA) return;
+            if (!petWs || petWs.readyState !== WebSocket.OPEN) return;
+            const tmp = document.createElement('canvas');
+            tmp.width = 320; tmp.height = 240;
+            tmp.getContext('2d').drawImage(v, 0, 0, 320, 240);
+            petWs.send(JSON.stringify({ type:'frame', image: tmp.toDataURL('image/jpeg', 0.65) }));
+        }
+
+        // -- results --
+        function renderResults(detections) {
+            const es = emptyState(); if (es) es.style.display = 'none';
+            if (!detections || detections.length === 0) {
+                countBadge()  && (countBadge().style.display  = 'none');
+                noPetsBadge() && (noPetsBadge().style.display = 'flex');
+                if (detList()) detList().innerHTML = '';
+                return;
+            }
+            noPetsBadge() && (noPetsBadge().style.display = 'none');
+            countBadge()  && (countBadge().style.display  = 'flex');
+
+            const cats = detections.filter(d => d.label === 'cat').length;
+            const dogs = detections.filter(d => d.label === 'dog').length;
+            const parts = [];
+            if (cats) parts.push(`${cats} cat${cats>1?'s':''}`);
+            if (dogs) parts.push(`${dogs} dog${dogs>1?'s':''}`);
+            if (countLabel()) countLabel().textContent = `${detections.length} pet${detections.length>1?'s':''} detected`;
+            if (countSub())   countSub().textContent   = parts.join(' · ');
+
+            if (detList()) {
+                detList().innerHTML = detections.map((d, i) => {
+                    const conf = (d.confidence * 100).toFixed(1);
+                    const color = BOX_COLOR[d.label] || 'var(--primary)';
+                    return `<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;
+                                background:var(--panel);border:1px solid var(--border);
+                                border-left:3px solid ${color};border-radius:8px;margin-bottom:8px;">
+                        <span style="font-size:1.8rem;">${EMOJI[d.label]||'🐾'}</span>
+                        <div style="flex:1;">
+                            <div style="font-weight:700;color:var(--text);text-transform:capitalize;margin-bottom:2px;">
+                                #${i+1} — ${d.label}
+                            </div>
+                            <div style="font-size:0.8rem;color:var(--subtext);margin-bottom:4px;">
+                                Confidence: ${conf}%
+                            </div>
+                            <div style="width:100%;height:4px;background:var(--muted);border-radius:2px;overflow:hidden;">
+                                <div style="width:${conf}%;height:100%;background:${color};border-radius:2px;"></div>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+        }
+
+        function clearResults() {
+            if (detList())    detList().innerHTML = '';
+            countBadge()  && (countBadge().style.display  = 'none');
+            noPetsBadge() && (noPetsBadge().style.display = 'none');
+            const es = emptyState(); if (es) es.style.display = '';
+        }
+
+        // -- canvas drawing --
+        function drawBoxesOnImage(canvas, img, detections) {
+            canvas.width  = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            detections.forEach(d => drawBox(ctx, d, 1, 1));
+        }
+
+        function drawBoxesOnWebcam(detections) {
+            if (!petCtx) return;
+            syncCanvas();
+            const cw = webcamCanvas().width, ch = webcamCanvas().height;
+            const v  = webcamVideo();
+            const sx = cw / (v?.videoWidth  || 320);
+            const sy = ch / (v?.videoHeight || 240);
+            detections.forEach(d => drawBox(petCtx, d, sx, sy));
+        }
+
+        function drawBox(ctx, det, sx, sy) {
+            const [x1,y1,x2,y2] = det.bbox;
+            const color = BOX_COLOR[det.label] || '#3b82f6';
+            const bx = x1*sx, by = y1*sy, bw = (x2-x1)*sx, bh = (y2-y1)*sy;
+
+            ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+            ctx.strokeRect(bx, by, bw, bh);
+
+            // Corner accents
+            const cs = Math.min(bw,bh)*0.12; ctx.lineWidth = 4;
+            [[bx,by,1,1],[bx+bw,by,-1,1],[bx,by+bh,1,-1],[bx+bw,by+bh,-1,-1]].forEach(([cx,cy,dx,dy])=>{
+                ctx.beginPath(); ctx.moveTo(cx,cy+dy*cs); ctx.lineTo(cx,cy); ctx.lineTo(cx+dx*cs,cy); ctx.stroke();
+            });
+
+            // Label pill
+            const label = `${EMOJI[det.label]||'🐾'} ${det.label} ${(det.confidence*100).toFixed(0)}%`;
+            ctx.font = 'bold 13px Inter, Arial, sans-serif';
+            const tw = ctx.measureText(label).width;
+            const pw = tw+16, ph = 22;
+            const px = bx, py = by-ph-4 < 0 ? by+4 : by-ph-4;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.roundRect(px, py, pw, ph, 5);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.fillText(label, px+8, py+ph-6);
+        }
+
+        function clearPreviewCanvas() {
+            const c = previewCanvas(); if (!c) return;
+            c.getContext('2d').clearRect(0,0,c.width,c.height);
+        }
+        function clearWebcamCanvas() {
+            if (petCtx) { const c = webcamCanvas(); if(c) petCtx.clearRect(0,0,c.width,c.height); }
+        }
+        function syncCanvas() {
+            const v = webcamVideo(); const c = webcamCanvas(); if (!v||!c) return;
+            const r = v.getBoundingClientRect();
+            c.width  = r.width  || v.videoWidth  || 640;
+            c.height = r.height || v.videoHeight || 480;
+        }
+
+        // -- ui helpers --
+        function showError(msg) { const e = errorMsg(); if(e){e.textContent=msg; e.style.display='block';} }
+        function hideError()    { const e = errorMsg(); if(e) e.style.display='none'; }
+        function showLoading(v) { const l = loading(); if(l) l.style.display = v ? 'block' : 'none'; }
+        function setStatus(state, text) {
+            const d = statusDot(), t = statusTxt();
+            if (d) d.style.background = state==='live' ? 'var(--success)' : 'var(--muted)';
+            if (t) t.textContent = text;
+        }
+        function formatBytes(b) {
+            if (!b) return '0 B';
+            const k=1024, s=['B','KB','MB'], i=Math.floor(Math.log(b)/Math.log(k));
+            return `${(b/Math.pow(k,i)).toFixed(1)} ${s[i]}`;
+        }
+
+        window.addEventListener('resize', () => { if (petLive) syncCanvas(); });
+    })();
+
+    // ============================================
     // INITIALIZE ON LOAD
     // ============================================
     if (document.readyState === 'loading') {

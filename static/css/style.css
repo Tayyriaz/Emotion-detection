@@ -2172,3 +2172,16 @@ body {
         min-height: 44px;
     }
 }
+
+/* ============================================
+   PET DETECTION TAB
+   ============================================ */
+.pet-mode-selector {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     GROQ_WHISPER_MODEL: str = "whisper-large-v3"
     GROQ_LLAMA_MODEL: str = "llama-3.3-70b-versatile"
 
+    # Pet detection (YOLO)
+    PET_MODEL_NAME: str = "yolov8n.pt"  # YOLOv8 nano (fastest); change to yolo11n.pt for YOLO11
+    PET_CONFIDENCE_THRESHOLD: float = 0.25  # Min confidence (YOLO default = 0.25; lower = more sensitive)
+
     # CORS
     CORS_ORIGINS: List[AnyHttpUrl] = Field(default_factory=list)
 
