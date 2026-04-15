@@ -63,9 +63,8 @@ class HSEmotionDetector:
 
         settings = get_settings()
         device = settings.MODEL_DEVICE
-        
-        # Use best model for accuracy (can be configured later)
-        model_name = "enet_b0_8_best_afew"  # Best balance of accuracy and speed
+        model_name = settings.EMOTION_MODEL_NAME
+        self.neutral_confidence_threshold = settings.NEUTRAL_CONFIDENCE_THRESHOLD
         
         logger.info(f"Loading HSEmotion model: {model_name} on device: {device}")
         
@@ -242,6 +241,16 @@ class HSEmotionDetector:
             
             # Get confidence (probability of dominant emotion)
             confidence = float(scores[np.argmax(scores)])
+
+            # Neutral fallback: if no emotion clears the confidence threshold the
+            # face is ambiguous and should be reported as neutral rather than
+            # mis-labelled as Sad or Angry (common with low-expressiveness faces).
+            if emotion_lower != "neutral" and confidence < self.neutral_confidence_threshold:
+                logger.debug(
+                    f"HSEmotion: overriding '{emotion_lower}' ({confidence:.3f}) → 'neutral' "
+                    f"(below threshold {self.neutral_confidence_threshold})"
+                )
+                emotion_lower = "neutral"
             
             logger.debug(
                 f"HSEmotion prediction: {emotion_lower} (confidence: {confidence:.3f})"

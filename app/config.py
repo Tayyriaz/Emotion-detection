@@ -27,6 +27,17 @@ class Settings(BaseSettings):
     # Device for model execution
     MODEL_DEVICE: Literal["cpu", "cuda"] = "cpu"
 
+    # HSEmotion model variant.
+    # "enet_b0_8_best_vgaf" → trained on VGGFace2 (balanced, better Neutral accuracy)
+    # "enet_b0_8_best_afew" → fine-tuned on AFEW drama clips (biased toward Angry/Sad)
+    EMOTION_MODEL_NAME: str = "enet_b0_8_best_vgaf"
+
+    # Minimum softmax confidence required to accept a non-Neutral prediction.
+    # If the top emotion scores below this value the result is overridden to "neutral",
+    # preventing ambiguous micro-expressions from being mis-labelled as Sad/Angry.
+    # Tune between 0.35 (looser) and 0.55 (stricter). Default 0.45 works well in practice.
+    NEUTRAL_CONFIDENCE_THRESHOLD: float = 0.45
+
     # Logging / limits
     LOG_LEVEL: str = "INFO"
     MAX_IMAGE_SIZE_MB: int = 8
@@ -55,6 +66,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 @lru_cache()

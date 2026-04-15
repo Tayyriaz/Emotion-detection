@@ -436,7 +436,7 @@
                 e.preventDefault();
                 const target = document.querySelector(href);
                 if (target) {
-                    const navHeight = 72;
+                    const navHeight = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-height')) || 72;
                     const offsetTop = target.offsetTop - navHeight;
                     window.scrollTo({
                         top: offsetTop,

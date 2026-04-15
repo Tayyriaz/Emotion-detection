@@ -41,11 +41,19 @@ const maxHistorySize = 5;
 // INITIALIZATION
 // ============================================
 
-// Setup canvas context
+// Setup canvas context — use the wrapper's actual layout size so the
+// canvas never overflows on mobile before updateCanvasSize() fires.
 if (videoCanvas) {
     ctx = videoCanvas.getContext('2d');
-    videoCanvas.width = 640;
-    videoCanvas.height = 480;
+    const wrapper = videoCanvas.parentElement;
+    if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        videoCanvas.width = rect.width > 0 ? rect.width : 640;
+        videoCanvas.height = rect.height > 0 ? rect.height : 480;
+    } else {
+        videoCanvas.width = 640;
+        videoCanvas.height = 480;
+    }
 }
 
 // Landmarks toggle

@@ -283,6 +283,7 @@ body {
     0 1px 2px -1px rgba(99, 102, 241, 0.2);
   position: relative;
   z-index: 1;
+  min-height: 44px;
 }
 
 .upload-cta:hover {
@@ -411,6 +412,7 @@ input[type="file"] {
     0 2px 4px -1px rgba(99, 102, 241, 0.2);
   transition: all var(--transition-base);
   min-width: 180px;
+  min-height: 44px;
   position: relative;
   overflow: hidden;
 }
@@ -763,5 +765,81 @@ button,
   
   .card {
     padding: var(--spacing-lg);
+  }
+
+  /* Stack upload CTA below text on narrow screens */
+  .upload-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+  }
+
+  .upload-cta {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .primary-btn {
+    width: 100%;
+    min-width: auto;
+  }
+}
+
+/* Extra-small phones (< 375px) */
+@media (max-width: 375px) {
+  body {
+    padding: var(--spacing-sm);
+  }
+
+  .card {
+    padding: var(--spacing-md);
+    border-radius: var(--radius-lg);
+  }
+
+  .title {
+    font-size: 20px;
+  }
+
+  .subtitle {
+    font-size: 13px;
+  }
+
+  .upload-area {
+    padding: var(--spacing-md);
+  }
+
+  .upload-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .upload-text-main {
+    font-size: 14px;
+  }
+
+  .upload-text-sub {
+    font-size: 12px;
+  }
+
+  .upload-cta {
+    font-size: 13px;
+    padding: 10px 16px;
+  }
+
+  .emotion-label {
+    font-size: clamp(20px, 7vw, 28px);
+  }
+
+  .confidence-value {
+    font-size: 14px;
+    min-width: 40px;
+  }
+
+  .results-card {
+    padding: var(--spacing-md);
+  }
+
+  .au-list {
+    padding: var(--spacing-sm);
   }
 }

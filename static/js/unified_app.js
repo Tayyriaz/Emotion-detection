@@ -31,7 +31,7 @@ class UnifiedApp {
             const detectionSection = document.getElementById('features');
             if (detectionSection) {
                 setTimeout(() => {
-                    const navHeight = 72;
+                    const navHeight = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-height')) || 72;
                     const offsetTop = detectionSection.offsetTop - navHeight;
                     window.scrollTo({
                         top: offsetTop,

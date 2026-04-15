@@ -537,7 +537,7 @@ body {
 
 .au-bar {
     display: grid;
-    grid-template-columns: 200px 1fr 60px;
+    grid-template-columns: minmax(100px, 200px) 1fr 60px;
     gap: 12px;
     align-items: center;
     padding: 8px 0;
@@ -1891,8 +1891,8 @@ body {
     }
     
     .btn-sm {
-        padding: 4px 8px;
-        font-size: 10px;
+        padding: 6px 10px;
+        font-size: 11px;
     }
     
     .controls-row {
@@ -2155,8 +2155,17 @@ body {
         min-width: 44px;
     }
     
+    .btn-sm {
+        min-height: 44px;
+    }
+
     .tab-btn {
         min-height: 44px;
+    }
+
+    .au-tab-btn {
+        min-height: 44px;
+        padding: 10px 16px;
     }
     
     .mode-btn {
@@ -2173,6 +2182,96 @@ body {
     }
 }
 
+/* Extra-small phones (< 375px) */
+@media (max-width: 375px) {
+    .main-content {
+        padding: 6px;
+    }
+
+    .app-header {
+        padding: 6px 8px;
+    }
+
+    .brand h1 {
+        font-size: 13px;
+    }
+
+    .logo {
+        font-size: 18px;
+    }
+
+    /* Hide badges entirely on very small screens to prevent overflow */
+    .status-badges {
+        display: none;
+    }
+
+    .tab-btn {
+        padding: 5px 8px;
+    }
+
+    .card-body {
+        padding: 8px;
+    }
+
+    /* AU bar: collapse label so bar gets more space */
+    .au-bar {
+        grid-template-columns: 60px 1fr 36px;
+        gap: 4px;
+    }
+
+    .au-bar-label {
+        font-size: 9px;
+    }
+
+    .au-bar-value {
+        font-size: 9px;
+    }
+
+    /* Diagnostic panel: always full-width at bottom on tiny screens */
+    .diagnostic-panel {
+        bottom: 6px;
+        right: 6px;
+        left: 6px;
+    }
+
+    .diagnostic-content {
+        width: calc(100vw - 12px);
+        max-width: calc(100vw - 12px);
+        right: 0;
+        left: 0;
+        padding: 10px;
+    }
+
+    .emotion-label-large {
+        font-size: clamp(20px, 7vw, 28px);
+    }
+
+    .mode-btn {
+        font-size: 10px;
+        padding: 6px 4px;
+    }
+
+    .mode-icon {
+        font-size: 16px;
+    }
+
+    .upload-area-audio {
+        padding: 16px 8px;
+    }
+
+    .result-value-large {
+        font-size: 20px;
+    }
+
+    .summary-stats {
+        gap: 8px;
+    }
+
+    .stat-value {
+        font-size: 14px;
+    }
+}
+
 /* ============================================
    PET DETECTION TAB
    ============================================ */
@@ -2180,6 +2279,154 @@ body {
     display: flex;
     gap: 8px;
     margin-bottom: 20px;
+}
+
+/* Animal tab — result elements (replaces inline styles in templates/index.html) */
+.animal-preview-container {
+    border-radius: 8px;
+    overflow: hidden;
+    background: #000;
+    margin-bottom: 12px;
+}
+
+.animal-preview-container img {
+    width: 100%;
+    max-height: 280px;
+    object-fit: contain;
+    display: block;
+}
+
+.animal-loading {
+    text-align: center;
+    padding: 24px;
+}
+
+.animal-loading-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--muted);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.85s linear infinite;
+    margin: 0 auto 10px;
+}
+
+.animal-loading-text {
+    color: var(--subtext);
+    font-size: 0.875rem;
+}
+
+.animal-empty-state {
+    text-align: center;
+    padding: 48px 16px;
+    color: var(--subtext);
+}
+
+.animal-empty-state-icon {
+    font-size: 3rem;
+    opacity: 0.4;
+    margin-bottom: 12px;
+}
+
+.animal-hero {
+    text-align: center;
+    padding: 24px 16px 20px;
+    background: rgba(59, 130, 246, 0.07);
+    border: 1px solid rgba(59, 130, 246, 0.18);
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.animal-hero-emoji {
+    font-size: 3.5rem;
+    margin-bottom: 10px;
+}
+
+.animal-hero-label {
+    font-size: 1.8rem;
+    font-weight: 800;
+    text-transform: capitalize;
+    margin-bottom: 6px;
+}
+
+.animal-hero-conf {
+    font-size: 0.9rem;
+    color: var(--subtext);
+    margin-bottom: 14px;
+}
+
+.animal-conf-track {
+    width: 100%;
+    height: 8px;
+    background: var(--muted);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.animal-conf-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), #6366f1);
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.5s;
+}
+
+.animal-dist-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--subtext);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+}
+
+.animal-meta-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: var(--subtext);
+    margin-top: 12px;
+}
+
+.animal-meta-key {
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* Responsive adjustments for animal elements */
+@media (max-width: 480px) {
+    .animal-hero-label {
+        font-size: 1.4rem;
+    }
+
+    .animal-hero-emoji {
+        font-size: 2.8rem;
+    }
+
+    .animal-empty-state {
+        padding: 32px 12px;
+    }
+}
+
+@media (max-width: 375px) {
+    .animal-hero-label {
+        font-size: clamp(1.1rem, 6vw, 1.4rem);
+    }
+
+    .animal-hero {
+        padding: 16px 10px;
+    }
+
+    .animal-meta-row {
+        font-size: 0.75rem;
+        padding: 8px 10px;
+    }
 }
 
 @keyframes spin {

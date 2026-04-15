@@ -18,6 +18,7 @@ body {
     min-height: 100vh;
     padding: 20px;
     color: #333;
+    overflow-x: hidden;
 }
 
 /* ============================================
@@ -131,6 +132,8 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
 }
 
 .file-name {
@@ -414,5 +417,123 @@ body {
     
     .details-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+/* Small mobile (< 480px) */
+@media (max-width: 480px) {
+    body {
+        padding: 12px;
+    }
+
+    .container {
+        padding: 8px;
+    }
+
+    .header h1 {
+        font-size: 1.6rem;
+    }
+
+    .header p {
+        font-size: 1rem;
+    }
+
+    .card {
+        padding: 16px;
+        border-radius: 12px;
+    }
+
+    .upload-area {
+        padding: 24px 16px;
+    }
+
+    .upload-icon {
+        font-size: 3rem;
+    }
+
+    .upload-text-primary {
+        font-size: 1.1rem;
+    }
+
+    .btn-analyze {
+        padding: 14px 20px;
+        font-size: 1rem;
+    }
+
+    .emotion-label {
+        font-size: 1.8em;
+    }
+
+    .confidence-bar {
+        height: 28px;
+    }
+
+    .detail-item {
+        padding: 14px;
+    }
+
+    .detail-value {
+        font-size: 1.2rem;
+    }
+
+    .transcript-box {
+        padding: 14px;
+    }
+
+    .transcript-text {
+        font-size: 0.95rem;
+    }
+
+    .overall-section,
+    .explanation-section {
+        padding: 14px;
+    }
+}
+
+/* Extra-small phones (< 375px) */
+@media (max-width: 375px) {
+    body {
+        padding: 8px;
+    }
+
+    .container {
+        padding: 6px;
+    }
+
+    .header h1 {
+        font-size: 1.3rem;
+    }
+
+    .card {
+        padding: 12px;
+    }
+
+    .upload-area {
+        padding: 16px 10px;
+    }
+
+    .upload-icon {
+        font-size: 2.5rem;
+    }
+
+    .emotion-label {
+        font-size: clamp(1.4rem, 8vw, 1.8rem);
+    }
+
+    .confidence-bar {
+        height: 22px;
+    }
+
+    .phrase-tag {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+
+    .detail-item {
+        padding: 10px;
+    }
+
+    .detail-value {
+        font-size: 1rem;
     }
 }

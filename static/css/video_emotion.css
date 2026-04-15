@@ -18,6 +18,7 @@ body {
     min-height: 100vh;
     padding: 20px;
     color: #333;
+    overflow-x: hidden;
 }
 
 /* ============================================
@@ -437,6 +438,7 @@ body {
 @media (max-width: 768px) {
     .video-container {
         grid-template-columns: 1fr;
+        gap: 20px;
     }
     
     .header h1 {
@@ -445,5 +447,141 @@ body {
     
     .stats {
         grid-template-columns: 1fr;
+    }
+
+    .video-box {
+        padding: 20px;
+    }
+
+    .status-section {
+        padding: 20px;
+    }
+}
+
+/* Small mobile (< 480px) */
+@media (max-width: 480px) {
+    body {
+        padding: 12px;
+    }
+
+    .container {
+        padding: 12px;
+    }
+
+    .header h1 {
+        font-size: 1.6rem;
+    }
+
+    .header p {
+        font-size: 1rem;
+    }
+
+    /* Stack buttons vertically so they don't overflow at 375px */
+    .controls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .btn-start,
+    .btn-stop {
+        width: 100%;
+        max-width: 280px;
+        padding: 14px 24px;
+        margin: 0;
+        font-size: 1rem;
+    }
+
+    .video-box {
+        padding: 14px;
+        border-radius: 12px;
+    }
+
+    .video-box h2 {
+        font-size: 1.2rem;
+    }
+
+    .video-container {
+        gap: 14px;
+    }
+
+    .emotion-label {
+        font-size: 2em;
+    }
+
+    .confidence-bar {
+        height: 30px;
+    }
+
+    .stacked-histogram {
+        height: 160px;
+    }
+
+    .histogram-label {
+        min-width: 60px;
+        font-size: 0.7rem;
+    }
+
+    .stats {
+        gap: 12px;
+    }
+
+    .stat-value {
+        font-size: 1.5rem;
+    }
+
+    .status-section {
+        padding: 16px;
+        border-radius: 12px;
+    }
+
+    .status-section h2 {
+        font-size: 1.2rem;
+    }
+
+    .status {
+        padding: 12px 20px;
+        font-size: 1rem;
+    }
+}
+
+/* Extra-small phones (< 375px) */
+@media (max-width: 375px) {
+    body {
+        padding: 8px;
+    }
+
+    .container {
+        padding: 8px;
+    }
+
+    .header h1 {
+        font-size: 1.3rem;
+    }
+
+    .video-box {
+        padding: 10px;
+    }
+
+    .btn-start,
+    .btn-stop {
+        max-width: 100%;
+        padding: 12px 20px;
+        font-size: 0.95rem;
+    }
+
+    .emotion-label {
+        font-size: 1.6em;
+    }
+
+    .histogram-label {
+        min-width: 48px;
+        font-size: 0.65rem;
+    }
+
+    .stacked-histogram {
+        height: 130px;
+        padding: 8px;
     }
 }
