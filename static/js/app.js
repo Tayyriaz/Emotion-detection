@@ -28,7 +28,9 @@
         emotionHistory: [],
         auHistory: [],
         ws: null,  // WebSocket connection
-        lastBbox: null  // Last bounding box for continuous drawing
+        lastBbox: null,       // Legacy single-face bbox (fallback)
+        lastFaces: null,      // Multi-face array [{bbox, emotion, confidence, is_pov}]
+        videoSource: 'webcam' // 'webcam' | 'screen'
     };
 
     const audioState = {
@@ -440,6 +442,7 @@
     function setupEvents() {
         // Video events
         $('#startVideoBtn')?.addEventListener('click', startVideoRecording);
+        $('#zoomAnalysisBtn')?.addEventListener('click', startZoomAnalysis);
         $('#stopVideoBtn')?.addEventListener('click', stopVideoRecording);
         $('#pauseVideoBtn')?.addEventListener('click', pauseVideoRecording);
         $('#cameraSelect')?.addEventListener('change', handleCameraChange);
@@ -964,9 +967,145 @@
     // ============================================
     // VIDEO FUNCTIONS
     // ============================================
+    // ------------------------------------------------------------------ //
+    // Zoom / Screen-share Analysis
+    // ------------------------------------------------------------------ //
+
+    /**
+     * Prompt the user to select a screen / window (expected: their Zoom window).
+     * Replaces the webcam feed with the captured display stream and starts
+     * the same frame-analysis loop used for the webcam.
+     *
+     * Behaviour on error / cancel:
+     *   - If the user cancels the picker (NotAllowedError / AbortError) the
+     *     function silently offers to fall back to the webcam.
+     *   - Any other error is shown as an alert so the user knows what went wrong.
+     */
+    async function startZoomAnalysis() {
+        // Prevent double-start
+        if (videoState.isRecording) {
+            console.warn('Already recording — stop current session first.');
+            return;
+        }
+
+        let screenStream;
+        try {
+            screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: {
+                    frameRate: { ideal: 10, max: 15 }, // low FPS is fine for emotion analysis
+                    displaySurface: 'window',          // hint: prefer a window over full screen
+                },
+                audio: false,
+            });
+        } catch (err) {
+            const cancelled = err.name === 'NotAllowedError' || err.name === 'AbortError';
+            if (cancelled) {
+                // User pressed Cancel — offer webcam fallback
+                const useFallback = window.confirm(
+                    'Screen share was cancelled.\n\nWould you like to fall back to your webcam instead?'
+                );
+                if (useFallback) await startVideoRecording();
+            } else {
+                alert(`Screen capture failed: ${err.message}`);
+                console.error('getDisplayMedia error:', err);
+            }
+            return;
+        }
+
+        // Attach stream to the same <video> element the webcam uses
+        const video = $('#videoStream');
+        if (video) {
+            video.srcObject = screenStream;
+            video.style.display = 'block';
+            $('#videoPlaceholder')?.classList.add('hidden');
+
+            video.addEventListener('loadedmetadata', () => {
+                const canvas = $('#videoCanvas');
+                if (canvas) {
+                    canvas.width  = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                }
+            }, { once: true });
+        }
+
+        // When the user stops sharing via the browser's native "Stop sharing" button
+        // treat it the same as pressing our Stop button.
+        screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+            console.log('📺 Screen share ended by user');
+            stopVideoRecording();
+        });
+
+        videoState.stream        = screenStream;
+        videoState.videoSource   = 'screen';
+        videoState.useBrowserWebcam = true; // reuse the same captureAndAnalyzeFrame path
+
+        // Mark session metadata
+        videoState.isRecording = true;
+        videoState.startTs     = Date.now();
+        videoState.sessionCount++;
+        videoState.timeline       = [];
+        videoState.emotionHistory = [];
+        videoState.auHistory      = [];
+
+        // Connect WebSocket (is_pov flag comes from the checkbox)
+        try {
+            await connectVideoWebSocket();
+            console.log('✅ WebSocket connected for Zoom screen analysis');
+        } catch (wsErr) {
+            console.warn('⚠️ WebSocket failed, using HTTP fallback:', wsErr);
+        }
+
+        // Update UI
+        _setVideoUIActive('screen');
+
+        // Start frame capture loop (identical to webcam path)
+        const frameInterval = parseInt($('#frameInterval')?.value || 200);
+        videoState.pollId = setInterval(captureAndAnalyzeFrame, frameInterval);
+
+        // Canvas refresh loop
+        videoState.canvasUpdateId = setInterval(updateVideoCanvas, 33);
+
+        // Timer
+        videoState.timerId = setInterval(() => {
+            videoState.duration = Math.floor((Date.now() - videoState.startTs) / 1000);
+            $('#videoTimer').textContent = fmtTime(videoState.duration);
+            const progress = Math.min((videoState.duration / 300) * 100, 100);
+            $('#videoProgress').style.width = `${progress}%`;
+        }, 1000);
+
+        // AU analytics reset
+        auAnalytics.startTime   = Date.now();
+        auAnalytics.history     = [];
+        auAnalytics.stats       = {};
+        auAnalytics.totalFrames = 0;
+    }
+
+    /** Shared helper: update all video-tab UI elements for the active source. */
+    function _setVideoUIActive(source /* 'webcam' | 'screen' */) {
+        $('#startVideoBtn').style.display    = 'none';
+        $('#zoomAnalysisBtn').style.display  = 'none';
+        $('#stopVideoBtn').style.display     = 'inline-flex';
+        $('#pauseVideoBtn').style.display    = 'inline-flex';
+
+        const indicator = $('#sourceIndicator');
+        const label     = $('#sourceLabel');
+        if (source === 'screen') {
+            if (indicator) indicator.classList.add('active');
+            if (label)     label.textContent = 'Analyzing Screen: Zoom';
+            $('#videoStatus').textContent = 'Video: Screen';
+            $('#videoStatus').className   = 'badge badge-live';
+        } else {
+            if (indicator) indicator.classList.remove('active');
+            $('#videoStatus').textContent = 'Video: Recording';
+            $('#videoStatus').className   = 'badge badge-live';
+        }
+        $('#sessionCount').textContent = `Session: ${videoState.sessionCount}`;
+    }
+
     async function startVideoRecording() {
         try {
             videoState.useBrowserWebcam = $('#cameraSelect')?.value === 'browser';
+            videoState.videoSource      = 'webcam';
             
             if (videoState.useBrowserWebcam) {
                 await startBrowserWebcam();
@@ -989,12 +1128,7 @@
             }
             
             // Update UI
-            $('#startVideoBtn').style.display = 'none';
-            $('#stopVideoBtn').style.display = 'inline-flex';
-            $('#pauseVideoBtn').style.display = 'inline-flex';
-            $('#videoStatus').textContent = 'Video: Recording';
-            $('#videoStatus').className = 'badge badge-live';
-            $('#sessionCount').textContent = `Session: ${videoState.sessionCount}`;
+            _setVideoUIActive('webcam');
             
             // Start polling (faster for real-time updates)
             const frameInterval = parseInt($('#frameInterval')?.value || 200);
@@ -1033,25 +1167,25 @@
 
     function stopVideoRecording() {
         videoState.isRecording = false;
-        
+
         // Stop polling
         if (videoState.pollId) {
             clearInterval(videoState.pollId);
             videoState.pollId = null;
         }
-        
+
         // Stop timer
         if (videoState.timerId) {
             clearInterval(videoState.timerId);
             videoState.timerId = null;
         }
-        
+
         // Stop canvas update loop
         if (videoState.canvasUpdateId) {
             clearInterval(videoState.canvasUpdateId);
             videoState.canvasUpdateId = null;
         }
-        
+
         // Close WebSocket connection
         if (videoState.ws) {
             if (videoState.ws.readyState === WebSocket.OPEN) {
@@ -1061,19 +1195,29 @@
             videoState.ws = null;
             console.log('🔌 WebSocket closed');
         }
-        
-        // Stop browser webcam
+
+        // Stop all media tracks (works for both webcam and screen-share streams)
+        if (videoState.stream) {
+            videoState.stream.getTracks().forEach(t => t.stop());
+            videoState.stream = null;
+        }
+        // Legacy path: also call stopBrowserWebcam to clear the video element
         if (videoState.useBrowserWebcam) {
             stopBrowserWebcam();
         }
-        
-        // Update UI
-        $('#startVideoBtn').style.display = 'inline-flex';
-        $('#stopVideoBtn').style.display = 'none';
-        $('#pauseVideoBtn').style.display = 'none';
+
+        // Reset source state
+        videoState.videoSource = 'webcam';
+
+        // Update UI — restore both start buttons, hide source indicator
+        $('#startVideoBtn').style.display   = 'inline-flex';
+        $('#zoomAnalysisBtn').style.display = 'inline-flex';
+        $('#stopVideoBtn').style.display    = 'none';
+        $('#pauseVideoBtn').style.display   = 'none';
+        $('#sourceIndicator')?.classList.remove('active');
         $('#videoStatus').textContent = 'Video: Idle';
-        $('#videoStatus').className = 'badge badge-idle';
-        
+        $('#videoStatus').className   = 'badge badge-idle';
+
         // Generate session summary
         generateSessionSummary();
     }
@@ -1141,7 +1285,8 @@
         return new Promise((resolve, reject) => {
             // Use WSS for HTTPS (Render), WS for HTTP (local)
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/video/emotion`;
+            const isPov = $('#isPovCheckbox')?.checked ?? true;
+            const wsUrl = `${protocol}//${window.location.host}/video/emotion?is_pov=${isPov}`;
             
             console.log('🔌 Connecting WebSocket to:', wsUrl);
             
@@ -1207,49 +1352,89 @@
         });
     }
 
+    // Colour palette for multi-face bounding boxes (cycles if > 6 faces)
+    const FACE_BOX_COLORS = [
+        '#3b82f6', // blue   — face_0 (POV)
+        '#10b981', // green  — face_1
+        '#f59e0b', // amber  — face_2
+        '#ef4444', // red    — face_3
+        '#8b5cf6', // violet — face_4
+        '#ec4899', // pink   — face_5
+    ];
+
     // Continuous canvas update for smooth video display
     function updateVideoCanvas() {
         const video = $('#videoStream');
         const videoCanvas = $('#videoCanvas');
         const videoCtx = videoCanvas?.getContext('2d');
-        
+
         if (!video || video.readyState !== video.HAVE_ENOUGH_DATA || !videoCanvas || !videoCtx) return;
-        
-        const videoWidth = video.videoWidth || 640;
+
+        const videoWidth  = video.videoWidth  || 640;
         const videoHeight = video.videoHeight || 480;
-        
-        // Set canvas size
+
         if (videoCanvas.width !== videoWidth || videoCanvas.height !== videoHeight) {
-            videoCanvas.width = videoWidth;
+            videoCanvas.width  = videoWidth;
             videoCanvas.height = videoHeight;
         }
-        
-        // Always redraw video frame first
+
         videoCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
-        
-        // Redraw bounding box if available
-        if (videoState.lastBbox) {
+
+        // Draw all detected faces (multi-face support)
+        if (videoState.lastFaces && videoState.lastFaces.length > 0) {
+            const scaleX = videoWidth  / 320;
+            const scaleY = videoHeight / 240;
+
+            videoState.lastFaces.forEach((face, i) => {
+                const { bbox, emotion, confidence, is_pov } = face;
+                if (!bbox || bbox.length < 4) return;
+
+                const [x1, y1, x2, y2] = bbox;
+                const sx = x1 * scaleX;
+                const sy = y1 * scaleY;
+                const sw = (x2 - x1) * scaleX;
+                const sh = (y2 - y1) * scaleY;
+
+                const color = FACE_BOX_COLORS[i % FACE_BOX_COLORS.length];
+
+                // Bounding box
+                videoCtx.strokeStyle = color;
+                videoCtx.lineWidth = is_pov ? 4 : 2;
+                videoCtx.strokeRect(sx, sy, sw, sh);
+
+                // Label background pill
+                const label = `${emotion} ${confidence}%${is_pov ? ' ★' : ''}`;
+                videoCtx.font = 'bold 13px Arial';
+                const textW = videoCtx.measureText(label).width + 10;
+                const labelY = Math.max(sy - 22, 4);
+                videoCtx.fillStyle = color;
+                videoCtx.beginPath();
+                videoCtx.roundRect
+                    ? videoCtx.roundRect(sx, labelY, textW, 20, 4)
+                    : videoCtx.rect(sx, labelY, textW, 20);
+                videoCtx.fill();
+
+                // Label text
+                videoCtx.fillStyle = '#ffffff';
+                videoCtx.fillText(label, sx + 5, labelY + 14);
+            });
+        } else if (videoState.lastBbox) {
+            // Legacy single-face fallback
             const { bbox, emotion, confidence } = videoState.lastBbox;
             if (bbox && Array.isArray(bbox) && bbox.length >= 4) {
-                const scaleX = videoWidth / 320;
+                const scaleX = videoWidth  / 320;
                 const scaleY = videoHeight / 240;
                 const [x1, y1, x2, y2] = bbox;
-                const scaledX1 = x1 * scaleX;
-                const scaledY1 = y1 * scaleY;
-                const scaledX2 = x2 * scaleX;
-                const scaledY2 = y2 * scaleY;
-                const width = scaledX2 - scaledX1;
-                const height = scaledY2 - scaledY1;
-                
-                // Draw bounding box
+                const sx = x1 * scaleX;
+                const sy = y1 * scaleY;
+                const sw = (x2 - x1) * scaleX;
+                const sh = (y2 - y1) * scaleY;
                 videoCtx.strokeStyle = '#3b82f6';
                 videoCtx.lineWidth = 3;
-                videoCtx.strokeRect(scaledX1, scaledY1, width, height);
-                
-                // Draw emotion label
+                videoCtx.strokeRect(sx, sy, sw, sh);
                 videoCtx.fillStyle = '#3b82f6';
                 videoCtx.font = 'bold 16px Arial';
-                videoCtx.fillText(`${emotion} (${confidence}%)`, scaledX1, Math.max(scaledY1 - 5, 20));
+                videoCtx.fillText(`${emotion} (${confidence}%)`, sx, Math.max(sy - 5, 20));
             }
         }
     }
@@ -1322,75 +1507,90 @@
     }
 
     function handleVideoResult(data, videoWidth = null, videoHeight = null) {
-        // Handle WebSocket response format (data.type === 'emotion')
-        // or HTTP POST response format (data.success)
-        const success = data.success !== undefined ? data.success : (data.type === 'emotion' && data.face_detected);
+        const success     = data.success !== undefined ? data.success : (data.type === 'emotion' && data.face_detected);
         const faceDetected = data.face_detected !== undefined ? data.face_detected : success;
-        
-        if (!success || !faceDetected) {
-            $('#currentEmotion').textContent = 'No Face';
-            $('#currentConfidence').textContent = '0%';
-            videoState.lastBbox = null; // Clear bounding box
-            return;
-        }
-        
-        const emotion = normalizeEmotion(data.emotion);
-        const confidence = (data.confidence || 0) * 100;
-        const emotions = data.emotions || {};
-        const aus = data.aus || {};
-        const faceBbox = data.face_bbox || null;
-        
-        // Store bounding box for continuous drawing in canvas update loop
-        if (faceBbox && Array.isArray(faceBbox) && faceBbox.length >= 4) {
-            videoState.lastBbox = {
-                bbox: faceBbox,
-                emotion: emotion,
-                confidence: confidence.toFixed(0)
+
+        // ------------------------------------------------------------------ //
+        // Multi-face canvas overlay storage
+        // ------------------------------------------------------------------ //
+        // Prefer the new `faces` array; fall back to the legacy single-face
+        // shape so the canvas loop always has something to draw.
+        if (data.faces && data.faces.length > 0) {
+            videoState.lastFaces = data.faces.map(f => ({
+                bbox:       f.face_bbox,
+                emotion:    normalizeEmotion(f.emotion),
+                confidence: ((f.confidence || 0) * 100).toFixed(0),
+                is_pov:     f.is_pov || false,
+            }));
+            videoState.lastBbox = null; // disable legacy path
+        } else if (data.face_bbox && faceDetected) {
+            videoState.lastFaces = null;
+            videoState.lastBbox  = {
+                bbox:       data.face_bbox,
+                emotion:    normalizeEmotion(data.emotion),
+                confidence: ((data.confidence || 0) * 100).toFixed(0),
             };
         } else {
-            videoState.lastBbox = null;
+            videoState.lastFaces = null;
+            videoState.lastBbox  = null;
         }
-        
-        // Apply smoothing for stability
-        const smoothedEmotions = applyEmotionSmoothing(emotions);
-        const smoothedEmotion = getDominantEmotion(smoothedEmotions);
+
+        if (!success || !faceDetected) {
+            $('#currentEmotion').textContent  = 'No Face';
+            $('#currentConfidence').textContent = '0%';
+            // Still update room state even when no face is detected
+            const room = data.room;
+            if (room) {
+                updateHarmonyMeter(room);
+                updateGuidanceBox(room.social_prompt || '');
+                updateSpikeAlert(data.spike || null, room);
+            }
+            return;
+        }
+
+        // ------------------------------------------------------------------ //
+        // Primary face (face_0 / POV) drives the legacy stats widgets
+        // ------------------------------------------------------------------ //
+        const emotion    = normalizeEmotion(data.emotion);
+        const confidence = (data.confidence || 0) * 100;
+        const emotions   = data.emotions || {};
+        const aus        = data.aus || {};
+
+        const smoothedEmotions   = applyEmotionSmoothing(emotions);
+        const smoothedEmotion    = getDominantEmotion(smoothedEmotions);
         const smoothedConfidence = smoothedEmotions[smoothedEmotion] || confidence / 100;
-        
-        // Update current emotion (use smoothed values)
-        $('#currentEmotion').textContent = normalizeEmotion(smoothedEmotion);
+
+        // ---- Face count badge ----
+        const faceCount = data.face_count || 1;
+        $('#currentEmotion').textContent    = normalizeEmotion(smoothedEmotion);
         $('#currentConfidence').textContent = `${(smoothedConfidence * 100).toFixed(1)}%`;
-        
-        // Update AU count
-        const auCount = Object.keys(aus).length;
-        $('#auCount').textContent = `AUs: ${auCount}`;
-        
-        // Add to timeline (use smoothed values for stability)
+        const auCountEl = $('#auCount');
+        if (auCountEl) {
+            const facesLabel = faceCount > 1 ? ` | ${faceCount} faces` : '';
+            auCountEl.textContent = `AUs: ${Object.keys(aus).length}${facesLabel}`;
+        }
+
+        // ---- Timeline & history ----
         const timelineEntry = {
-            t: videoState.duration,
-            label: smoothedEmotion,
+            t:          videoState.duration,
+            label:      smoothedEmotion,
             confidence: smoothedConfidence,
-            scores: smoothedEmotions,
-            aus: aus
+            scores:     smoothedEmotions,
+            aus,
         };
         videoState.timeline.push(timelineEntry);
         videoState.emotionHistory.push({ emotion: smoothedEmotion, confidence: smoothedConfidence, time: videoState.duration });
         videoState.auHistory.push({ aus, time: videoState.duration });
-        
-        // Update charts (use smoothed emotions for stacked histogram)
+
+        // ---- Charts ----
         pushChartPoint(smoothedConfidence);
-        updateEmotionBars(smoothedEmotions);  // Stacked histogram
+        updateEmotionBars(smoothedEmotions);
         updateEmotionMultiChart(smoothedEmotions);
         updateAUBars(aus);
-        
-        // Update model performance if inference time available
-        if (data.inference_time_ms) {
-            updateModelPerformance(data.inference_time_ms);
-        }
-        
-        // Track emotion changes
+
+        if (data.inference_time_ms) updateModelPerformance(data.inference_time_ms);
+
         trackEmotionChange(smoothedEmotion);
-        
-        // Update AU reasoning
         explainEmotion(smoothedEmotion, aus);
 
         // ---- Room Intelligence updates ----

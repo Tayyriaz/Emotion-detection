@@ -45,7 +45,7 @@ from datetime import datetime
 # ──────────────────────────────────────────────
 # Configuration — edit these as needed
 # ──────────────────────────────────────────────
-WS_URL     = "ws://localhost:8000/video/emotion"
+WS_URL     = "wss://emotion-detection-bzs2.onrender.com/video/emotion"
 SESSION_ID = "lab"
 USER_ID    = "Bob"
 INTERVAL   = 0.25      # seconds between each injected frame

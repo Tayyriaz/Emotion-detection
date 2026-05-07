@@ -303,6 +303,39 @@ body {
     cursor: not-allowed;
 }
 
+/* Zoom-blue action button */
+.btn-zoom {
+    background: #2D8CFF;
+    color: #ffffff;
+}
+.btn-zoom:hover:not(:disabled) {
+    background: #1a6fe0;
+    transform: translateY(-1px);
+}
+
+/* Active screen-share source indicator */
+.source-indicator {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(45, 140, 255, 0.15);
+    border: 1px solid rgba(45, 140, 255, 0.4);
+    color: #2D8CFF;
+    white-space: nowrap;
+}
+.source-indicator.active { display: inline-flex; }
+.source-indicator .src-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #2D8CFF;
+    animation: calmPulse 2s ease-in-out infinite;
+}
+
 /* ============================================
    CONTROLS
    ============================================ */

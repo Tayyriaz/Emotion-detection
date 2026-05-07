@@ -273,109 +273,143 @@ async def video_emotion_websocket(
                     continue
 
                 # -------------------------------------------------- #
-                # Emotion inference
+                # Multi-face emotion inference
+                # analyze_faces() returns one dict per detected face,
+                # sorted left-to-right.  Falls back gracefully to an
+                # empty list when no faces are present.
                 # -------------------------------------------------- #
                 start_time = time.time()
                 image = _decode_base64_image(image_data)
-                result = detector.analyze_image(image)
+                face_results: list = detector.analyze_faces(image)
 
-                face_detected = result.get("face_detected", False)
-                emotions: dict = result.get("emotions", {}) or {}
+                inference_ms = round((time.time() - start_time) * 1000, 1)
 
                 # -------------------------------------------------- #
-                # Session manager update
-                # Push every reading into the session (even no-face so
-                # the participant's presence is recorded; we send a
-                # neutral vector in that case).
+                # Session manager update — one participant per face
+                #
+                # Each face gets a stable ID derived from its left-to-
+                # right position in the frame so the session manager can
+                # track individuals across consecutive frames:
+                #   face_0  ← leftmost tile (often the POV / host)
+                #   face_1  ← second tile from left
+                #   …
+                #
+                # The connection-level is_pov flag is applied only to
+                # face_0 (the POV camera position).  All other faces are
+                # treated as non-POV room participants.
                 # -------------------------------------------------- #
-                vector = emotions if (face_detected and emotions) else {"neutral": 1.0}
-                spike_event = emotion_session.update_participant(
-                    user_id=user_id,
-                    emotion_vector=vector,
-                    is_pov=effective_pov,
-                )
+                any_face_detected = len(face_results) > 0
+                last_spike_event = None  # spike from the most recently updated participant
+
+                if any_face_detected:
+                    for face in face_results:
+                        idx = face["face_index"]
+                        face_uid = f"{user_id}_face_{idx}"
+                        face_is_pov = effective_pov and (idx == 0)
+                        face_spike = emotion_session.update_participant(
+                            user_id=face_uid,
+                            emotion_vector=face["emotions"],
+                            is_pov=face_is_pov,
+                        )
+                        if face_spike is not None:
+                            last_spike_event = face_spike
+                else:
+                    # No face detected: keep the primary participant's
+                    # slot alive with a neutral vector so the session
+                    # does not lose track of the connection.
+                    neutral_uid = f"{user_id}_face_0"
+                    last_spike_event = emotion_session.update_participant(
+                        user_id=neutral_uid,
+                        emotion_vector={"neutral": 1.0},
+                        is_pov=effective_pov,
+                    )
 
                 # Room state is cheap (pure arithmetic) — compute every frame.
                 room_state = emotion_session.calculate_weighted_room_state()
-
-                # Inject one plain-language guidance sentence into the room
-                # object before it is sent to the client.  The insight
-                # generator is a pure function — zero I/O overhead.
                 room_state["social_prompt"] = get_social_guidance(room_state)
 
-                # Serialise spike info (None when no spike this frame).
+                # Serialise spike info (worst spike this frame, or None).
                 spike_payload = (
                     {
-                        "peak_emotion": spike_event.peak_emotion,
-                        "magnitude": spike_event.magnitude,
-                        "weight": spike_event.weight,
+                        "peak_emotion": last_spike_event.peak_emotion,
+                        "magnitude": last_spike_event.magnitude,
+                        "weight": last_spike_event.weight,
                     }
-                    if spike_event is not None
+                    if last_spike_event is not None
                     else None
                 )
 
                 # -------------------------------------------------- #
-                # Send response
+                # Build per-face payload for the client
+                # Each entry mirrors the old single-face shape so the
+                # frontend can stay backward compatible while also
+                # gaining the new `faces` array for multi-box drawing.
                 # -------------------------------------------------- #
-                if face_detected and emotions:
-                    emotion = result.get("emotion", "neutral")
-                    confidence = result.get("confidence", 0.0)
+                faces_payload = [
+                    {
+                        "face_index": f["face_index"],
+                        "face_bbox": f["face_bbox"],
+                        "emotion": f["emotion"],
+                        "confidence": round(f["confidence"], 3),
+                        "emotions": {k: round(v, 3) for k, v in f["emotions"].items()},
+                        "is_pov": effective_pov and f["face_index"] == 0,
+                    }
+                    for f in face_results
+                ]
 
-                    confidence_delta = abs(confidence - last_confidence)
-                    if (
-                        emotion != last_emotion
+                # Primary face (face_0) drives the legacy single-face fields
+                # so existing UI code keeps working without changes.
+                primary = face_results[0] if face_results else None
+                primary_emotion = primary["emotion"] if primary else "neutral"
+                primary_confidence = primary["confidence"] if primary else 0.0
+                primary_bbox = primary["face_bbox"] if primary else None
+
+                # -------------------------------------------------- #
+                # Send response — always send when faces changed or
+                # spike occurred; suppress identical quiet frames.
+                # -------------------------------------------------- #
+                emotion_changed = primary_emotion != last_emotion
+                confidence_delta = abs(primary_confidence - last_confidence)
+                should_send = (
+                    any_face_detected
+                    and (
+                        emotion_changed
                         or confidence_delta > settings.VIDEO_MIN_CONFIDENCE_DELTA
-                        or spike_event is not None
-                    ):
-                        last_emotion = emotion
-                        last_confidence = confidence
+                        or last_spike_event is not None
+                    )
+                ) or (not any_face_detected and last_emotion is not None)
 
-                        face_bbox = result.get("face_bbox")
-                        if face_bbox and isinstance(face_bbox, tuple):
-                            face_bbox = [int(c) for c in face_bbox]
+                if should_send:
+                    last_emotion = primary_emotion if any_face_detected else None
+                    last_confidence = primary_confidence
 
-                        sent = await safe_send({
-                            "type": "emotion",
-                            "success": True,
-                            # --- Individual result (unchanged shape) ---
-                            "emotion": emotion,
-                            "confidence": round(confidence, 3),
-                            "emotions": {k: round(v, 3) for k, v in emotions.items()},
-                            "face_detected": True,
-                            "face_bbox": face_bbox,
-                            "inference_time_ms": round(
-                                (time.time() - start_time) * 1000, 1
-                            ),
-                            # --- Session identity ---
-                            "user_id": user_id,
-                            "session_id": session_id,
-                            "is_pov": effective_pov,
-                            # --- Spike (null when none detected) ---
-                            "spike": spike_payload,
-                            # --- Room aggregate ---
-                            "room": room_state,
-                        })
-                        if not sent:
-                            break
-
-                else:
-                    # No face: report neutral + still push room state
-                    if last_emotion is not None or spike_event is not None:
-                        sent = await safe_send({
-                            "type": "emotion",
-                            "success": False,
-                            "emotion": "neutral",
-                            "confidence": 0.0,
-                            "face_detected": False,
-                            "user_id": user_id,
-                            "session_id": session_id,
-                            "is_pov": effective_pov,
-                            "spike": spike_payload,
-                            "room": room_state,
-                        })
-                        if not sent:
-                            break
-                        last_emotion = None
+                    sent = await safe_send({
+                        "type": "emotion",
+                        "success": any_face_detected,
+                        # --- Legacy single-face fields (backward compat) ---
+                        "emotion": primary_emotion,
+                        "confidence": round(primary_confidence, 3),
+                        "emotions": (
+                            {k: round(v, 3) for k, v in primary["emotions"].items()}
+                            if primary else {}
+                        ),
+                        "face_detected": any_face_detected,
+                        "face_bbox": primary_bbox,
+                        # --- NEW: full multi-face array ---
+                        "faces": faces_payload,
+                        "face_count": len(face_results),
+                        "inference_time_ms": inference_ms,
+                        # --- Session identity ---
+                        "user_id": user_id,
+                        "session_id": session_id,
+                        "is_pov": effective_pov,
+                        # --- Spike (null when none detected) ---
+                        "spike": spike_payload,
+                        # --- Room aggregate ---
+                        "room": room_state,
+                    })
+                    if not sent:
+                        break
 
             except ValueError as exc:
                 logger.debug(f"Frame decode error: {exc}")
@@ -398,6 +432,13 @@ async def video_emotion_websocket(
         # Cleanup: remove participant; close session when empty
         # ---------------------------------------------------------- #
         try:
+            # Remove all face-level sub-participants created for this connection.
+            # Face IDs follow the pattern "<user_id>_face_<N>".
+            detector_ref = HSEmotionDetector.instance() if HSEmotionDetector.is_available() else None
+            max_faces = getattr(detector_ref, "MAX_FACES_PER_FRAME", 6) if detector_ref else 6
+            for idx in range(max_faces):
+                emotion_session.remove_participant(f"{user_id}_face_{idx}")
+            # Also attempt to remove the bare user_id (legacy / inject path).
             emotion_session.remove_participant(user_id)
             remaining = emotion_session.list_participants()
             if not remaining:

@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Multimodal Emotion Analyzer</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=2025-12-10-01">
+    <link rel="stylesheet" href="/static/css/style.css?v=2026-05-07-02">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -21,7 +21,7 @@
                     <h1>Multimodal Emotion Analyzer</h1>
                 </div>
                 <div class="status-badges">
-                    <span class="badge badge-muted" id="uiVersion">UI v2025-12-10-01</span>
+                    <span class="badge badge-muted" id="uiVersion">UI v2026-05-07-02</span>
                     <span class="badge badge-idle" id="backendStatus">Backend: Checking...</span>
                     <span class="badge badge-idle" id="serverStatus">Server: Online</span>
                     <span class="badge badge-idle" id="imageStatus">Image: Idle</span>
@@ -140,7 +140,8 @@
                                 <canvas id="videoCanvas"></canvas>
                                 <div class="video-placeholder" id="videoPlaceholder">
                                     <div class="placeholder-icon">📹</div>
-                                    <p>Click "Start Recording" to begin</p>
+                                    <p>Click <strong>Start Webcam</strong> for local camera</p>
+                                    <p style="margin-top:6px; font-size:12px; color:#94a3b8;">or <strong>Analyze Zoom Meeting</strong> to share your screen</p>
                                 </div>
                             </div>
                             
@@ -159,9 +160,20 @@
                             </div>
                             
                             <div class="controls-row">
-                                <button class="btn btn-primary" id="startVideoBtn">Start Recording</button>
-                                <button class="btn btn-danger" id="stopVideoBtn" style="display: none;">Stop Recording</button>
-                                <button class="btn btn-sm" id="pauseVideoBtn" style="display: none;">Pause</button>
+                                <button class="btn btn-primary" id="startVideoBtn">▶ Start Webcam</button>
+                                <button class="btn btn-zoom"    id="zoomAnalysisBtn">🖥 Analyze Zoom Meeting</button>
+                                <button class="btn btn-danger"  id="stopVideoBtn" style="display: none;">⏹ Stop</button>
+                                <button class="btn btn-sm"      id="pauseVideoBtn" style="display: none;">Pause</button>
+                                <span class="source-indicator"  id="sourceIndicator">
+                                    <span class="src-dot"></span>
+                                    <span id="sourceLabel">Analyzing Screen: Zoom</span>
+                                </span>
+                            </div>
+                            <div class="controls-row" style="gap:8px; align-items:center; margin-top:4px;">
+                                <label style="display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer;">
+                                    <input type="checkbox" id="isPovCheckbox" checked style="accent-color:#2D8CFF;">
+                                    <span>I am the Deployer (POV — face on the left)</span>
+                                </label>
                             </div>
                             
                             <div class="progress-container">

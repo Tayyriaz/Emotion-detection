@@ -126,148 +126,201 @@ class HSEmotionDetector:
             )
         return cls._face_cascade
     
-    def _detect_face_simple(self, image: np.ndarray) -> Optional[tuple]:
+    # Maximum number of faces to run inference on per frame.
+    # Faces are kept largest-first; extras are silently skipped.
+    MAX_FACES_PER_FRAME: int = 6
+
+    def _detect_all_faces(self, image: np.ndarray) -> list:
         """
-        Simple face detection using OpenCV Haar Cascade.
-        Optimized: Resize large images first for faster detection.
-        Returns (x1, y1, x2, y2) bounding box or None.
+        Detect ALL faces in an RGB image using OpenCV Haar Cascade.
+
+        Returns a list of (x1, y1, x2, y2) tuples in original image
+        coordinates, sorted left-to-right by x1 (stable spatial order,
+        critical for per-tile tracking in gallery views).
+
+        Performance guard: at most MAX_FACES_PER_FRAME faces are returned;
+        the smallest are discarded first to keep CPU load bounded.
         """
-        # Resize large images for faster face detection (max 800px width)
-        # This significantly speeds up detection on large images
-        original_shape = image.shape
         max_dimension = 800
         scale = 1.0
-        
+
+        working = image
         if image.shape[1] > max_dimension or image.shape[0] > max_dimension:
             scale = max_dimension / max(image.shape[1], image.shape[0])
-            new_width = int(image.shape[1] * scale)
-            new_height = int(image.shape[0] * scale)
-            image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-        
-        # Convert to grayscale (works for both RGB and BGR)
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY if image.shape[2] == 3 else cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image
-        
-        face_cascade = self._get_face_cascade()  # Use cached classifier
-        faces = face_cascade.detectMultiScale(
-            gray, scaleFactor=1.2, minNeighbors=4, minSize=(30, 30)  # Faster detection params
-        )
-        
-        if len(faces) == 0:
-            return None
-        
-        # Return largest face
-        largest = max(faces, key=lambda f: f[2] * f[3])
-        x, y, w, h = largest
-        
-        # Scale back to original image size if image was resized
-        if scale < 1.0:
-            x = int(x / scale)
-            y = int(y / scale)
-            w = int(w / scale)
-            h = int(h / scale)
-        
-        # Convert NumPy int32 to Python int for JSON serialization
-        return (int(x), int(y), int(x + w), int(y + h))
-
-    def analyze_image(self, image: np.ndarray) -> Dict[str, Any]:
-        """
-        Analyze emotion from a face image.
-        
-        Process:
-        1. Detect face in image using OpenCV Haar Cascade
-        2. Extract face region
-        3. Run HSEmotion model on face region
-        4. Get emotion probabilities and select dominant emotion
-        
-        Args:
-            image: BGR numpy array (OpenCV format), shape (H, W, 3)
-            
-        Returns:
-            Dictionary containing:
-            - face_detected (bool): Whether a face was found
-            - emotions (Dict[str, float]): All emotion scores (0.0-1.0)
-            - emotion (str): Dominant emotion label (lowercase)
-            - confidence (float): Confidence score of dominant emotion (0.0-1.0)
-            - aus (Dict): Empty dict (HSEmotion doesn't provide Action Units)
-            - face_bbox (Optional[tuple]): Face bounding box (x1, y1, x2, y2) or None
-            
-        Example:
-            result = detector.analyze_image(image)
-            # result = {
-            #     "face_detected": True,
-            #     "emotion": "happiness",
-            #     "confidence": 0.92,
-            #     "emotions": {"happiness": 0.92, "neutral": 0.05, ...},
-            #     "aus": {},
-            #     "face_bbox": (100, 150, 300, 350)
-            # }
-        """
-        # Convert BGR to RGB for HSEmotion
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
-        # Detect face
-        face_bbox = self._detect_face_simple(image_rgb)
-        
-        if face_bbox is None:
-            logger.debug("No face detected in image")
-            return self._no_face_result()
-        
-        x1, y1, x2, y2 = face_bbox
-        face_img = image_rgb[y1:y2, x1:x2]
-        
-        # Ensure face image is not empty
-        if face_img.size == 0:
-            logger.debug("Empty face region detected")
-            return self._no_face_result(face_bbox)
-        
-        try:
-            # Predict emotions (returns logits=False means probabilities)
-            emotion_label, scores = self.recognizer.predict_emotions(face_img, logits=False)
-            
-            # Map emotion to lowercase
-            emotion_map = (
-                self.emotion_map_7 if len(scores) == 7 else self.emotion_map
+            working = cv2.resize(
+                image,
+                (int(image.shape[1] * scale), int(image.shape[0] * scale)),
+                interpolation=cv2.INTER_LINEAR,
             )
+
+        gray = (
+            cv2.cvtColor(working, cv2.COLOR_RGB2GRAY)
+            if len(working.shape) == 3
+            else working
+        )
+
+        faces = self._get_face_cascade().detectMultiScale(
+            gray, scaleFactor=1.2, minNeighbors=4, minSize=(30, 30)
+        )
+
+        if len(faces) == 0:
+            return []
+
+        # Cap to MAX_FACES_PER_FRAME (keep the largest ones)
+        if len(faces) > self.MAX_FACES_PER_FRAME:
+            faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)[: self.MAX_FACES_PER_FRAME]
+
+        # Scale back to original coords and sort left-to-right
+        inv = 1.0 / scale if scale < 1.0 else 1.0
+        result = []
+        for (x, y, w, h) in faces:
+            x1 = int(x * inv)
+            y1 = int(y * inv)
+            x2 = int((x + w) * inv)
+            y2 = int((y + h) * inv)
+            result.append((x1, y1, x2, y2))
+
+        result.sort(key=lambda b: b[0])  # left-to-right spatial order
+        return result
+
+    def _detect_face_simple(self, image: np.ndarray) -> Optional[tuple]:
+        """
+        Single-face detection: returns the largest face bbox or None.
+        Kept for backwards compatibility with non-gallery callers.
+        """
+        faces = self._detect_all_faces(image)
+        if not faces:
+            return None
+        # Return the largest by area among the already-capped list
+        return max(faces, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+
+    def _run_inference_on_crop(
+        self, face_img: np.ndarray, face_bbox: tuple
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Run HSEmotion inference on a single pre-cropped face (RGB).
+
+        Returns a result dict or None when inference fails / image is empty.
+        This is the shared hot-path used by both analyze_image() and
+        analyze_faces() so the neutral-fallback and emotion-map logic
+        live in exactly one place.
+        """
+        if face_img.size == 0:
+            return None
+        try:
+            emotion_label, scores = self.recognizer.predict_emotions(
+                face_img, logits=False
+            )
+            emotion_map = self.emotion_map_7 if len(scores) == 7 else self.emotion_map
             emotion_lower = emotion_map.get(emotion_label, emotion_label.lower())
-            
-            # Convert scores array to dict
             emotion_names = list(emotion_map.values())
             emotions_dict = {
-                name: float(score) for name, score in zip(emotion_names, scores)
+                name: float(score)
+                for name, score in zip(emotion_names, scores)
             }
-            
-            # Get confidence (probability of dominant emotion)
             confidence = float(scores[np.argmax(scores)])
 
-            # Neutral fallback: if no emotion clears the confidence threshold the
-            # face is ambiguous and should be reported as neutral rather than
-            # mis-labelled as Sad or Angry (common with low-expressiveness faces).
             if emotion_lower != "neutral" and confidence < self.neutral_confidence_threshold:
                 logger.debug(
-                    f"HSEmotion: overriding '{emotion_lower}' ({confidence:.3f}) → 'neutral' "
-                    f"(below threshold {self.neutral_confidence_threshold})"
+                    f"HSEmotion: overriding '{emotion_lower}' ({confidence:.3f})"
+                    f" → 'neutral' (below threshold {self.neutral_confidence_threshold})"
                 )
                 emotion_lower = "neutral"
-            
-            logger.debug(
-                f"HSEmotion prediction: {emotion_lower} (confidence: {confidence:.3f})"
-            )
-            
+
             return {
                 "face_detected": True,
                 "emotions": emotions_dict,
                 "emotion": emotion_lower,
                 "confidence": confidence,
-                "aus": {},  # HSEmotion doesn't provide AU scores
-                "face_bbox": face_bbox,
+                "aus": {},
+                "face_bbox": list(face_bbox),
             }
-            
-        except Exception as e:
-            logger.error(f"HSEmotion prediction failed: {e}", exc_info=True)
+        except Exception as exc:
+            logger.error(f"HSEmotion inference failed: {exc}", exc_info=True)
+            return None
+
+    def analyze_image(self, image: np.ndarray) -> Dict[str, Any]:
+        """
+        Analyze emotion for the single largest face in a BGR image.
+
+        Kept for backward compatibility.  New multi-participant callers
+        should use analyze_faces() instead.
+
+        Args:
+            image: BGR numpy array (OpenCV format).
+
+        Returns:
+            Single result dict with keys: face_detected, emotion,
+            confidence, emotions, aus, face_bbox.
+        """
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        face_bbox = self._detect_face_simple(image_rgb)
+
+        if face_bbox is None:
+            logger.debug("No face detected in image")
+            return self._no_face_result()
+
+        x1, y1, x2, y2 = face_bbox
+        face_img = image_rgb[y1:y2, x1:x2]
+        result = self._run_inference_on_crop(face_img, face_bbox)
+        if result is None:
             return self._no_face_result(face_bbox)
+
+        logger.debug(
+            f"HSEmotion: {result['emotion']} (confidence: {result['confidence']:.3f})"
+        )
+        return result
+
+    def analyze_faces(self, image: np.ndarray) -> list:
+        """
+        Detect ALL faces in a BGR frame and return emotion results for each.
+
+        Designed for gallery-view scenarios (Zoom, multi-participant webcam)
+        where multiple people appear in a single frame.
+
+        Performance characteristics
+        ---------------------------
+        * Detection runs once per frame (shared Haar scan).
+        * At most MAX_FACES_PER_FRAME faces are processed (CPU guard).
+        * Faces are returned sorted left-to-right (stable spatial order)
+          so callers can use x-position as a proxy participant ID.
+
+        Args:
+            image: BGR numpy array (OpenCV format), shape (H, W, 3).
+
+        Returns:
+            List of result dicts (one per detected face), each containing:
+              face_detected  True
+              emotion        dominant emotion label (str)
+              confidence     dominant emotion probability (float)
+              emotions       full emotion scores dict (str → float)
+              aus            {} (HSEmotion does not provide AUs)
+              face_bbox      [x1, y1, x2, y2] in original image coordinates
+              face_index     0-based left-to-right position in the frame
+
+            Empty list when no faces are detected.
+        """
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        bboxes = self._detect_all_faces(image_rgb)
+
+        if not bboxes:
+            return []
+
+        results = []
+        for idx, bbox in enumerate(bboxes):
+            x1, y1, x2, y2 = bbox
+            face_img = image_rgb[y1:y2, x1:x2]
+            result = self._run_inference_on_crop(face_img, bbox)
+            if result is None:
+                continue
+            result["face_index"] = idx
+            results.append(result)
+            logger.debug(
+                f"Face {idx}: {result['emotion']} "
+                f"(conf={result['confidence']:.3f}, bbox={bbox})"
+            )
+
+        return results
     
     def _no_face_result(self, face_bbox: Optional[tuple] = None) -> Dict[str, Any]:
         """Return standardized result when no face is detected."""
