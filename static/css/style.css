@@ -422,20 +422,34 @@ body {
 .video-display-container {
     position: relative;
     width: 100%;
-    aspect-ratio: 16 / 9;
+    /* Let the video drive the height so no aspect-ratio mismatch.
+       min-height stops the box collapsing before the camera starts. */
+    min-height: 180px;
     background: #000;
     border-radius: 8px;
     overflow: hidden;
     margin-bottom: 16px;
+    /* Contain so canvas & video share the same coordinate space */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 #videoStream {
+    /* contain = no cropping, no squishing. The video fills the available
+       width and adjusts its height to honour the source aspect ratio.
+       This is essential for screen-share (16:9) vs. webcam (4:3). */
+    display: block;
     width: 100%;
-    height: 100%;
-    object-fit: cover;
+    height: auto;
+    max-height: 480px;
+    object-fit: contain;
 }
 
 #videoCanvas {
+    /* Canvas is absolutely positioned over the video element.
+       JS sets canvas.width/height = video.videoWidth/Height so it is
+       pixel-perfect regardless of source aspect ratio. */
     position: absolute;
     top: 0;
     left: 0;
@@ -443,10 +457,8 @@ body {
     height: 100%;
     pointer-events: none;
     z-index: 10;
-    /* Optimize canvas rendering for mobile */
     image-rendering: -webkit-optimize-contrast;
     image-rendering: crisp-edges;
-    /* Prevent canvas from causing layout shifts */
     will-change: contents;
 }
 
@@ -1928,14 +1940,29 @@ body {
         font-size: 11px;
     }
     
-    .controls-row {
-        gap: 10px;
+    /* Video container: let content drive height, cap for small screens */
+    .video-display-container {
+        min-height: 140px;
     }
-    
+    #videoStream {
+        max-height: 260px;
+    }
+
+    /* Button row: wrap onto two lines on very small screens */
+    .controls-row {
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .controls-row .btn {
+        flex: 1 1 auto;
+        min-width: 120px;
+        justify-content: center;
+    }
+
     .control-group {
         gap: 4px;
     }
-    
+
     .select,
     .input {
         padding: 6px 10px;
@@ -2172,7 +2199,9 @@ body {
     }
     
     .video-display-container {
-        aspect-ratio: 16 / 9;
+        max-height: 50vh;
+    }
+    #videoStream {
         max-height: 50vh;
     }
     
@@ -2475,6 +2504,64 @@ body {
 /* Card wrapper */
 .ri-card {
     margin-top: 0;
+}
+
+/* ============================================================
+   PARTICIPANT ROSTER TABLE
+   ============================================================ */
+.roster-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.roster-table thead th {
+    text-align: left;
+    padding: 6px 10px;
+    color: var(--subtext);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+.roster-table tbody tr {
+    transition: background 0.15s;
+}
+.roster-table tbody tr:hover {
+    background: rgba(255,255,255,0.03);
+}
+.roster-table tbody td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+.roster-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.roster-emotion-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(59,130,246,0.15);
+    color: #93c5fd;
+    text-transform: capitalize;
+}
+.roster-spike-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--warning);
+    animation: calmPulse 1.5s ease-in-out infinite;
+}
+.roster-role-pov  { color: #2D8CFF; font-weight: 600; }
+.roster-role-guest { color: var(--subtext); }
+@media (max-width: 600px) {
+    .roster-table thead th:nth-child(4),
+    .roster-table tbody td:nth-child(4) { display: none; }
 }
 
 /* Three-column grid: Harmony | Guidance | Chart */

@@ -28,9 +28,11 @@
         emotionHistory: [],
         auHistory: [],
         ws: null,  // WebSocket connection
-        lastBbox: null,       // Legacy single-face bbox (fallback)
-        lastFaces: null,      // Multi-face array [{bbox, emotion, confidence, is_pov}]
-        videoSource: 'webcam' // 'webcam' | 'screen'
+        lastBbox: null,        // Legacy single-face bbox (fallback)
+        lastFaces: null,       // Multi-face array [{bbox, emotion, confidence, is_pov}]
+        videoSource: 'webcam', // 'webcam' | 'screen'
+        captureW: 320,         // Width used when last frame was captured for inference
+        captureH: 240          // Height used (aspect-ratio-correct, NOT hardcoded 240)
     };
 
     const audioState = {
@@ -446,6 +448,7 @@
         $('#stopVideoBtn')?.addEventListener('click', stopVideoRecording);
         $('#pauseVideoBtn')?.addEventListener('click', pauseVideoRecording);
         $('#cameraSelect')?.addEventListener('change', handleCameraChange);
+        $('#exportSessionBtn')?.addEventListener('click', exportSessionCSV);
         
         // Audio events
         $('#startAudioBtn')?.addEventListener('click', startAudioRecording);
@@ -964,6 +967,108 @@
         return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
     }
 
+    // ------------------------------------------------------------------ //
+    // Participant label helper
+    // face_index 0 = POV when is_pov is true, otherwise Guest N
+    // ------------------------------------------------------------------ //
+    function participantLabel(faceIndex, isPov) {
+        if (isPov) return 'You (POV)';
+        return `Guest ${faceIndex}`; // face_1 → Guest 1, face_2 → Guest 2 …
+    }
+
+    // ------------------------------------------------------------------ //
+    // Participant Roster — live table under Room Intelligence
+    // ------------------------------------------------------------------ //
+    function updateParticipantRoster(faces) {
+        const empty      = $('#rosterEmpty');
+        const table      = $('#rosterTable');
+        const tbody      = $('#rosterBody');
+        const countBadge = $('#rosterFaceCount');
+        const exportBtn  = $('#exportSessionBtn');
+
+        if (!faces || faces.length === 0) {
+            if (empty)  empty.style.display  = 'block';
+            if (table)  table.style.display  = 'none';
+            if (countBadge) countBadge.textContent = '0 faces';
+            return;
+        }
+
+        if (empty) empty.style.display  = 'none';
+        if (table) table.style.display  = 'table';
+        if (countBadge) countBadge.textContent = `${faces.length} face${faces.length !== 1 ? 's' : ''}`;
+        if (exportBtn)  exportBtn.disabled = false;
+
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const colors = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899'];
+
+        faces.forEach((face, i) => {
+            const color   = colors[i % colors.length];
+            const label   = participantLabel(face.face_index, face.is_pov);
+            const emotion = capitalize(face.emotion || 'neutral');
+            const conf    = ((face.confidence || 0) * 100).toFixed(0);
+            const role    = face.is_pov
+                ? '<span class="roster-role-pov">★ POV</span>'
+                : '<span class="roster-role-guest">Guest</span>';
+            const spike   = face._spiking
+                ? '<span class="roster-spike-dot" title="Emotional spike detected"></span>'
+                : '—';
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><span class="roster-dot" style="background:${color}"></span></td>
+                <td>${label}</td>
+                <td><span class="roster-emotion-badge">${emotion}</span></td>
+                <td>${conf}%</td>
+                <td>${role}</td>
+                <td>${spike}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // ------------------------------------------------------------------ //
+    // Session Export — download timeline as CSV
+    // ------------------------------------------------------------------ //
+    function exportSessionCSV() {
+        if (!videoState.timeline || videoState.timeline.length === 0) {
+            alert('No session data to export yet. Start a recording first.');
+            return;
+        }
+
+        const rows = [
+            ['Time (s)', 'Emotion', 'Confidence', 'Happiness', 'Sadness',
+             'Anger', 'Fear', 'Surprise', 'Disgust', 'Neutral', 'Contempt']
+        ];
+
+        videoState.timeline.forEach(entry => {
+            const s = entry.scores || {};
+            rows.push([
+                entry.t,
+                entry.label,
+                (entry.confidence * 100).toFixed(1),
+                ((s.happiness  || 0) * 100).toFixed(1),
+                ((s.sadness    || 0) * 100).toFixed(1),
+                ((s.anger      || 0) * 100).toFixed(1),
+                ((s.fear       || 0) * 100).toFixed(1),
+                ((s.surprise   || 0) * 100).toFixed(1),
+                ((s.disgust    || 0) * 100).toFixed(1),
+                ((s.neutral    || 0) * 100).toFixed(1),
+                ((s.contempt   || 0) * 100).toFixed(1),
+            ]);
+        });
+
+        const csv  = rows.map(r => r.join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `emotion-session-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
     // ============================================
     // VIDEO FUNCTIONS
     // ============================================
@@ -1382,8 +1487,11 @@
 
         // Draw all detected faces (multi-face support)
         if (videoState.lastFaces && videoState.lastFaces.length > 0) {
-            const scaleX = videoWidth  / 320;
-            const scaleY = videoHeight / 240;
+            // Scale bboxes from the capture resolution back to the display resolution.
+            // captureW/H are set per-frame in captureAndAnalyzeFrame() to match the
+            // video's true aspect ratio, so these factors are always correct.
+            const scaleX = videoWidth  / (videoState.captureW || 320);
+            const scaleY = videoHeight / (videoState.captureH || 240);
 
             videoState.lastFaces.forEach((face, i) => {
                 const { bbox, emotion, confidence, is_pov } = face;
@@ -1402,8 +1510,9 @@
                 videoCtx.lineWidth = is_pov ? 4 : 2;
                 videoCtx.strokeRect(sx, sy, sw, sh);
 
-                // Label background pill
-                const label = `${emotion} ${confidence}%${is_pov ? ' ★' : ''}`;
+                // Human-readable participant label
+                const nameTag   = is_pov ? 'You (POV)' : `Guest ${i}`;
+                const label = `${nameTag}: ${emotion} ${confidence}%`;
                 videoCtx.font = 'bold 13px Arial';
                 const textW = videoCtx.measureText(label).width + 10;
                 const labelY = Math.max(sy - 22, 4);
@@ -1422,8 +1531,8 @@
             // Legacy single-face fallback
             const { bbox, emotion, confidence } = videoState.lastBbox;
             if (bbox && Array.isArray(bbox) && bbox.length >= 4) {
-                const scaleX = videoWidth  / 320;
-                const scaleY = videoHeight / 240;
+                const scaleX = videoWidth  / (videoState.captureW || 320);
+                const scaleY = videoHeight / (videoState.captureH || 240);
                 const [x1, y1, x2, y2] = bbox;
                 const sx = x1 * scaleX;
                 const sy = y1 * scaleY;
@@ -1441,17 +1550,27 @@
 
     async function captureAndAnalyzeFrame() {
         const video = $('#videoStream');
-        
+
         if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return;
-        
-        // Create temporary canvas for analysis (smaller size for faster processing)
+
+        // Compute capture size that preserves the source's true aspect ratio.
+        // Hardcoding 320×240 squished 16:9 screen-shares into 4:3, distorting faces.
+        const CAPTURE_W = 320;
+        const srcW = video.videoWidth  || 640;
+        const srcH = video.videoHeight || 480;
+        const CAPTURE_H = Math.max(1, Math.round(CAPTURE_W * srcH / srcW));
+
+        // Store so updateVideoCanvas can compute correct bbox scale factors
+        videoState.captureW = CAPTURE_W;
+        videoState.captureH = CAPTURE_H;
+
         const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCanvas.width = 320;
-        tempCanvas.height = 240;
-        tempCtx.drawImage(video, 0, 0, 320, 240);
-        
-        const imageData = tempCanvas.toDataURL('image/jpeg', 0.6);
+        const tempCtx    = tempCanvas.getContext('2d');
+        tempCanvas.width  = CAPTURE_W;
+        tempCanvas.height = CAPTURE_H;
+        tempCtx.drawImage(video, 0, 0, CAPTURE_W, CAPTURE_H);
+
+        const imageData = tempCanvas.toDataURL('image/jpeg', 0.7); // 0.7 = better quality for face detection
         
         // Send frame via WebSocket if connected, otherwise fallback to HTTP POST
         if (videoState.ws && videoState.ws.readyState === WebSocket.OPEN) {
@@ -1600,6 +1719,23 @@
             updateGuidanceBox(room.social_prompt || '');
             updateSpikeAlert(data.spike || null, room);
             pushRoomComparisonPoint(smoothedConfidence, room, videoState.duration);
+        }
+
+        // ---- Participant Roster ----
+        if (data.faces && data.faces.length > 0) {
+            // Annotate each face with spike flag from active_spikes list
+            const activeSpikes = new Set(
+                (room?.active_spikes || []).map(s => s.is_pov ? 'pov' : s.user_id)
+            );
+            const rosterFaces = data.faces.map(f => ({
+                ...f,
+                _spiking: data.spike !== null && f.face_index === 0
+                          ? true
+                          : (room?.active_spikes || []).some(s => !s.is_pov),
+            }));
+            updateParticipantRoster(rosterFaces);
+        } else if (!faceDetected) {
+            updateParticipantRoster([]);
         }
     }
     
