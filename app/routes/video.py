@@ -3,6 +3,27 @@ Video Emotion Detection API Routes
 
 WebSocket endpoint for real-time emotion detection from webcam video stream.
 Processes frames continuously and sends emotion updates back to client.
+
+Session-aware multi-participant pipeline
+----------------------------------------
+The WebSocket endpoint now accepts three optional query parameters:
+
+  session_id  Identifies which "room" / meeting this camera belongs to.
+              Multiple users connecting with the same session_id share one
+              EmotionSession and can see aggregated room state + Harmony Score.
+              Defaults to "default" (all solo connections share one session).
+
+  user_id     Stable identifier for this participant across reconnects.
+              Defaults to "<host>:<port>" derived from the client address.
+
+  is_pov      Boolean (true/false).  When true this participant is designated
+              the Point-of-View (deployer) user; their emotion is compared
+              against the aggregate room to produce the Harmony Score.
+              Defaults to false.
+
+Example WebSocket URL
+---------------------
+  ws://host/video/emotion?session_id=meeting-42&user_id=alice&is_pov=true
 """
 
 import asyncio
@@ -13,17 +34,22 @@ from asyncio import TimeoutError as AsyncTimeoutError
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, status
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, HTTPException, status
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.services.insight_generator import get_social_guidance
 from app.services.models.hsemotion_detector import HSEmotionDetector
+from app.services.session_manager import SessionManager
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()
 
 router = APIRouter(tags=["Video Emotion"])
+
+# Module-level singleton — initialised once, shared across all connections.
+_session_mgr = SessionManager.instance()
 
 
 class FrameAnalysisRequest(BaseModel):
@@ -48,13 +74,26 @@ def _decode_base64_image(base64_str: str) -> np.ndarray:
 
 
 @router.websocket("/video/emotion")
-async def video_emotion_websocket(websocket: WebSocket):
+async def video_emotion_websocket(
+    websocket: WebSocket,
+    session_id: str = Query(default="default"),
+    user_id: str = Query(default=""),
+    is_pov: bool = Query(default=False),
+):
     """
-    WebSocket endpoint for real-time emotion detection from video stream.
-    
-    Client sends base64-encoded image frames, server responds with emotion analysis.
-    Optimized for low latency: processes frames efficiently, skips frames if queue is full.
-    
+    WebSocket endpoint for real-time, session-aware emotion detection.
+
+    Query parameters
+    ----------------
+    session_id  Room / meeting identifier (default: "default").
+    user_id     Stable participant ID.  Auto-derived from client address if omitted.
+    is_pov      True = this camera belongs to the deployer (Point-of-View).
+
+    Every processed frame response includes:
+    - Individual emotion result  (unchanged from previous behaviour)
+    - spike                      (non-null when a high-intensity change is detected)
+    - room                       (aggregated room state + Harmony Score)
+
     Render-specific optimizations:
     - Handles connection timeouts gracefully
     - Sends keepalive pings to prevent idle timeout
@@ -62,177 +101,317 @@ async def video_emotion_websocket(websocket: WebSocket):
     """
     try:
         await websocket.accept()
-        logger.info("WebSocket connection established for video emotion detection")
     except Exception as e:
         logger.error(f"Failed to accept WebSocket connection: {e}")
         return
-    
-    detector = None
+
+    # ------------------------------------------------------------------ #
+    # Resolve participant identity
+    # ------------------------------------------------------------------ #
+    # Derive a fallback user_id from the client network address so that
+    # solo sessions without an explicit user_id still work correctly.
+    if not user_id:
+        try:
+            client = websocket.client
+            user_id = f"{client.host}:{client.port}" if client else "anonymous"
+        except Exception:
+            user_id = "anonymous"
+
+    # Acquire (or create) the shared session for this room.
+    emotion_session = _session_mgr.get_or_create_session(session_id)
+
+    logger.info(
+        f"WebSocket connected | session='{session_id}' user='{user_id}' pov={is_pov}"
+    )
+
+    # ------------------------------------------------------------------ #
+    # Per-connection state
+    # ------------------------------------------------------------------ #
     frame_count = 0
     last_emotion = None
     last_confidence = 0.0
     last_ping_time = time.time()
-    
-    def is_connected():
-        """Check if WebSocket is still connected."""
+
+    def is_connected() -> bool:
         try:
-            # Check WebSocket state (1 = CONNECTED)
             return websocket.client_state.value == 1
         except (AttributeError, ValueError):
-            # If we can't check state, assume connected (will fail on send if not)
             return True
-    
-    async def safe_send(data):
-        """Safely send data, handling disconnections gracefully."""
+
+    async def safe_send(data: dict) -> bool:
         if not is_connected():
             return False
         try:
             await websocket.send_json(data)
             return True
-        except (WebSocketDisconnect, RuntimeError, ConnectionError) as e:
-            logger.debug(f"WebSocket send failed (client disconnected): {e}")
+        except (WebSocketDisconnect, RuntimeError, ConnectionError) as exc:
+            logger.debug(f"WebSocket send failed (client disconnected): {exc}")
             return False
-        except Exception as e:
-            logger.error(f"WebSocket send error: {e}")
+        except Exception as exc:
+            logger.error(f"WebSocket send error: {exc}")
             return False
-    
+
+    # ------------------------------------------------------------------ #
+    # Main receive / process loop
+    # ------------------------------------------------------------------ #
     try:
-        # Initialize detector (singleton, loaded once)
         if not HSEmotionDetector.is_available():
-            await safe_send({
-                "error": "HSEmotion library not available",
-                "type": "error"
-            })
+            await safe_send({"type": "error", "error": "HSEmotion library not available"})
             return
-        
+
         detector = HSEmotionDetector.instance()
-        
-        # Process frames continuously
+
         while True:
-            # Check connection and send keepalive ping every 30 seconds
+            # Keepalive ping every 30 s
             current_time = time.time()
             if current_time - last_ping_time > 30:
                 if not await safe_send({"type": "ping"}):
                     break
                 last_ping_time = current_time
-            
-            # Receive frame from client with timeout handling
-            # Render may have connection timeouts, so we handle them gracefully
+
+            # Receive next message (60-second timeout)
             try:
-                # Use asyncio.wait_for for timeout (60 seconds max wait)
-                # This prevents hanging if client stops sending frames
                 try:
-                    data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                    data = await asyncio.wait_for(
+                        websocket.receive_text(), timeout=60.0
+                    )
                 except AsyncTimeoutError:
-                    # Send ping to keep connection alive if no data received
-                    logger.debug("No frame received in 60s, sending keepalive ping")
+                    logger.debug("No frame in 60 s — sending keepalive ping")
                     if not await safe_send({"type": "ping"}):
                         break
                     last_ping_time = time.time()
                     continue
-            except (WebSocketDisconnect, ConnectionError, RuntimeError) as e:
-                logger.info(f"WebSocket disconnected during receive: {e}")
+            except (WebSocketDisconnect, ConnectionError, RuntimeError) as exc:
+                logger.info(f"WebSocket disconnected during receive: {exc}")
                 break
-            except Exception as e:
-                logger.warning(f"Unexpected error receiving WebSocket message: {e}")
-                # Try to continue, might be recoverable
+            except Exception as exc:
+                logger.warning(f"Unexpected receive error: {exc}")
                 continue
-            
+
+            # ---------------------------------------------------------- #
+            # Parse message
+            # ---------------------------------------------------------- #
             try:
                 message = json.loads(data)
-                
-                # Handle control messages
+
+                # Control messages
                 if message.get("type") == "ping":
                     await safe_send({"type": "pong"})
                     last_ping_time = time.time()
                     continue
-                
+
                 if message.get("type") == "stop":
-                    logger.info("Client requested stop")
+                    logger.info(f"Client '{user_id}' requested stop")
                     break
-                
-                # Extract image data
+
+                # Allow mid-session is_pov override via message field.
+                effective_pov = message.get("is_pov", is_pov)
+
+                # -------------------------------------------------- #
+                # Test-only: direct emotion vector injection
+                # Enabled only when ALLOW_EMOTION_INJECTION=true in .env
+                # -------------------------------------------------- #
+                if message.get("type") == "inject_emotion":
+                    if not settings.ALLOW_EMOTION_INJECTION:
+                        await safe_send({
+                            "type": "error",
+                            "message": (
+                                "Emotion injection is disabled. "
+                                "Set ALLOW_EMOTION_INJECTION=true in .env to enable it."
+                            ),
+                        })
+                        continue
+
+                    injected: dict = message.get("emotions", {})
+                    if not injected:
+                        continue
+
+                    spike_event = emotion_session.update_participant(
+                        user_id=user_id,
+                        emotion_vector=injected,
+                        is_pov=effective_pov,
+                    )
+                    room_state = emotion_session.calculate_weighted_room_state()
+                    room_state["social_prompt"] = get_social_guidance(room_state)
+
+                    spike_payload = (
+                        {
+                            "peak_emotion": spike_event.peak_emotion,
+                            "magnitude": spike_event.magnitude,
+                            "weight": spike_event.weight,
+                        }
+                        if spike_event is not None
+                        else None
+                    )
+
+                    dominant = max(injected.items(), key=lambda kv: kv[1])
+                    sent = await safe_send({
+                        "type": "emotion",
+                        "success": True,
+                        "injected": True,           # flag so client knows this is synthetic
+                        "emotion": dominant[0],
+                        "confidence": round(dominant[1], 3),
+                        "emotions": {k: round(v, 3) for k, v in injected.items()},
+                        "face_detected": True,
+                        "user_id": user_id,
+                        "session_id": session_id,
+                        "is_pov": effective_pov,
+                        "spike": spike_payload,
+                        "room": room_state,
+                    })
+                    if not sent:
+                        break
+                    continue
+
                 image_data = message.get("image")
                 if not image_data:
                     continue
 
-                # Decode and process frame
+                # Frame-skip for throughput (configurable)
                 frame_count += 1
-
-                # Skip frames for performance (configurable)
                 if frame_count % settings.VIDEO_FRAME_SKIP != 0:
                     continue
 
+                # -------------------------------------------------- #
+                # Emotion inference
+                # -------------------------------------------------- #
                 start_time = time.time()
                 image = _decode_base64_image(image_data)
-
-                # Analyze human emotion
                 result = detector.analyze_image(image)
 
                 face_detected = result.get("face_detected", False)
-                emotions = result.get("emotions", {}) or {}
+                emotions: dict = result.get("emotions", {}) or {}
 
+                # -------------------------------------------------- #
+                # Session manager update
+                # Push every reading into the session (even no-face so
+                # the participant's presence is recorded; we send a
+                # neutral vector in that case).
+                # -------------------------------------------------- #
+                vector = emotions if (face_detected and emotions) else {"neutral": 1.0}
+                spike_event = emotion_session.update_participant(
+                    user_id=user_id,
+                    emotion_vector=vector,
+                    is_pov=effective_pov,
+                )
+
+                # Room state is cheap (pure arithmetic) — compute every frame.
+                room_state = emotion_session.calculate_weighted_room_state()
+
+                # Inject one plain-language guidance sentence into the room
+                # object before it is sent to the client.  The insight
+                # generator is a pure function — zero I/O overhead.
+                room_state["social_prompt"] = get_social_guidance(room_state)
+
+                # Serialise spike info (None when no spike this frame).
+                spike_payload = (
+                    {
+                        "peak_emotion": spike_event.peak_emotion,
+                        "magnitude": spike_event.magnitude,
+                        "weight": spike_event.weight,
+                    }
+                    if spike_event is not None
+                    else None
+                )
+
+                # -------------------------------------------------- #
+                # Send response
+                # -------------------------------------------------- #
                 if face_detected and emotions:
                     emotion = result.get("emotion", "neutral")
                     confidence = result.get("confidence", 0.0)
 
                     confidence_delta = abs(confidence - last_confidence)
-                    if emotion != last_emotion or confidence_delta > settings.VIDEO_MIN_CONFIDENCE_DELTA:
+                    if (
+                        emotion != last_emotion
+                        or confidence_delta > settings.VIDEO_MIN_CONFIDENCE_DELTA
+                        or spike_event is not None
+                    ):
                         last_emotion = emotion
                         last_confidence = confidence
 
-                        inference_time = (time.time() - start_time) * 1000
-
                         face_bbox = result.get("face_bbox")
                         if face_bbox and isinstance(face_bbox, tuple):
-                            face_bbox = [int(coord) for coord in face_bbox]
+                            face_bbox = [int(c) for c in face_bbox]
 
                         sent = await safe_send({
                             "type": "emotion",
                             "success": True,
+                            # --- Individual result (unchanged shape) ---
                             "emotion": emotion,
                             "confidence": round(confidence, 3),
                             "emotions": {k: round(v, 3) for k, v in emotions.items()},
                             "face_detected": True,
                             "face_bbox": face_bbox,
-                            "inference_time_ms": round(inference_time, 1),
+                            "inference_time_ms": round(
+                                (time.time() - start_time) * 1000, 1
+                            ),
+                            # --- Session identity ---
+                            "user_id": user_id,
+                            "session_id": session_id,
+                            "is_pov": effective_pov,
+                            # --- Spike (null when none detected) ---
+                            "spike": spike_payload,
+                            # --- Room aggregate ---
+                            "room": room_state,
                         })
                         if not sent:
                             break
+
                 else:
-                    if last_emotion is not None:
+                    # No face: report neutral + still push room state
+                    if last_emotion is not None or spike_event is not None:
                         sent = await safe_send({
                             "type": "emotion",
                             "success": False,
                             "emotion": "neutral",
                             "confidence": 0.0,
                             "face_detected": False,
+                            "user_id": user_id,
+                            "session_id": session_id,
+                            "is_pov": effective_pov,
+                            "spike": spike_payload,
+                            "room": room_state,
                         })
                         if not sent:
                             break
                         last_emotion = None
-                
-            except ValueError as e:
-                logger.debug(f"Frame decode error: {e}")
+
+            except ValueError as exc:
+                logger.debug(f"Frame decode error: {exc}")
                 continue
             except json.JSONDecodeError:
                 logger.debug("Invalid JSON received")
                 continue
-            except Exception as e:
-                logger.error(f"Frame processing error: {e}", exc_info=True)
-                if not await safe_send({
-                    "type": "error",
-                    "message": str(e)
-                }):
+            except Exception as exc:
+                logger.error(f"Frame processing error: {exc}", exc_info=True)
+                if not await safe_send({"type": "error", "message": str(exc)}):
                     break
                 continue
-                
+
     except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}", exc_info=True)
+        logger.info(f"WebSocket client '{user_id}' disconnected")
+    except Exception as exc:
+        logger.error(f"WebSocket error: {exc}", exc_info=True)
     finally:
-        logger.info(f"Video emotion session ended (processed {frame_count} frames)")
+        # ---------------------------------------------------------- #
+        # Cleanup: remove participant; close session when empty
+        # ---------------------------------------------------------- #
+        try:
+            emotion_session.remove_participant(user_id)
+            remaining = emotion_session.list_participants()
+            if not remaining:
+                _session_mgr.close_session(session_id)
+                logger.info(
+                    f"Session '{session_id}' closed (all participants disconnected)"
+                )
+        except Exception as exc:
+            logger.warning(f"Cleanup error for '{user_id}': {exc}")
+
+        logger.info(
+            f"Video session ended | session='{session_id}' user='{user_id}' "
+            f"frames_processed={frame_count}"
+        )
 
 
 @router.post("/video/emotion", summary="Analyze single frame from browser webcam")

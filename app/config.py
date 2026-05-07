@@ -60,6 +60,22 @@ class Settings(BaseSettings):
     # Animal emotion detection (Hugging Face ViT)
     ANIMAL_MODEL_NAME: str = "dima806/pets_facial_expression_detection"
 
+    # Testing / development only.
+    # When True the WebSocket endpoint accepts {"type":"inject_emotion","emotions":{...}}
+    # messages so test scripts can simulate arbitrary emotion vectors without a real camera.
+    # NEVER set this to True in production.
+    ALLOW_EMOTION_INJECTION: bool = False
+
+    # Session Manager — multi-participant emotion tracking
+    # SPIKE_THRESHOLD: min per-dimension emotion delta (0–1) to flag a spike
+    # SPIKE_MAX_WEIGHT: ceiling multiplier for a fully-spiked participant
+    # SPIKE_DECAY: per-update decay factor driving spike_weight back to 1.0
+    # HISTORY_WINDOW: rolling-average window length (frames) per participant
+    SESSION_SPIKE_THRESHOLD: float = 0.20
+    SESSION_SPIKE_MAX_WEIGHT: float = 3.0
+    SESSION_SPIKE_DECAY: float = 0.85
+    SESSION_HISTORY_WINDOW: int = 10
+
     # CORS
     CORS_ORIGINS: List[AnyHttpUrl] = Field(default_factory=list)
 

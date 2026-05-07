@@ -61,6 +61,7 @@
     let auDistributionChart = null;
     let auTopChart = null;
     let auCorrelationChart = null;
+    let roomComparisonChart = null;   // POV vs Room dual-line chart
 
     // ============================================
     // INITIALIZATION
@@ -740,6 +741,224 @@
 
         // AU Correlation (Heatmap placeholder - will use canvas)
         // auCorrelationChart handled by custom canvas rendering
+
+        // POV vs Room dual-line chart
+        initRoomComparisonChart();
+    }
+
+    // ============================================
+    // ROOM INTELLIGENCE — chart + UI functions
+    // ============================================
+
+    function initRoomComparisonChart() {
+        const ctx = $('#roomComparisonChart')?.getContext('2d');
+        if (!ctx) return;
+
+        roomComparisonChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'You (POV)',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59,130,246,0.08)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 0,
+                    },
+                    {
+                        label: 'Room Avg',
+                        data: [],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16,185,129,0.06)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 0,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: {
+                        labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 }
+                    },
+                    tooltip: { enabled: true },
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 6 },
+                        grid:  { color: 'rgba(255,255,255,0.04)' },
+                    },
+                    y: {
+                        min: 0, max: 1,
+                        ticks: {
+                            color: '#475569', font: { size: 10 },
+                            callback: v => (v * 100).toFixed(0) + '%',
+                        },
+                        grid: { color: 'rgba(255,255,255,0.04)' },
+                    },
+                },
+            },
+        });
+    }
+
+    const RING_CIRCUMFERENCE = 263.9; // 2π × r(42)
+    let _spikeCornerTimer = null;     // auto-hide timer for the corner alert
+
+    /**
+     * Update the SVG harmony ring and the text values.
+     * @param {object} room - result from calculate_weighted_room_state()
+     */
+    function updateHarmonyMeter(room) {
+        const pct   = room.harmony_pct  ?? 0;
+        const label = room.harmony_label ?? '--';
+
+        const pctEl   = $('#harmonyPctVal');
+        const labelEl = $('#harmonyStateLabel');
+        const ringEl  = $('#harmonyRingFill');
+        const badgeEl = $('#riSessionBadge');
+        const partEl  = $('#riParticipantsRow');
+
+        if (pctEl)   pctEl.textContent   = Math.round(pct);
+        if (labelEl) labelEl.textContent = label;
+
+        if (ringEl) {
+            const arc = (pct / 100) * RING_CIRCUMFERENCE;
+            ringEl.style.strokeDasharray = `${arc} ${RING_CIRCUMFERENCE}`;
+            ringEl.className = 'ring-fill ' + (
+                pct >= 80 ? 'harmony-high' :
+                pct >= 50 ? 'harmony-mid'  :
+                            'harmony-low'
+            );
+        }
+
+        if (partEl) {
+            const total = room.participant_count ?? 1;
+            const room_ = room.room_participant_count ?? 0;
+            partEl.textContent = `${total} participant${total !== 1 ? 's' : ''} · ${room_} in room`;
+        }
+
+        if (badgeEl && room.pov_present) {
+            badgeEl.textContent = room.pov_present ? 'POV active' : 'Waiting for POV…';
+        }
+    }
+
+    /**
+     * Update the guidance text with a subtle fade animation on change.
+     * @param {string} prompt - sentence from insight_generator
+     */
+    function updateGuidanceBox(prompt) {
+        const box  = $('#guidanceBox');
+        const text = $('#guidanceText');
+        if (!text) return;
+
+        if (!prompt) {
+            text.textContent = 'Start recording with multiple participants to receive real-time social guidance.';
+            return;
+        }
+
+        if (text.textContent === prompt) return; // no change — skip animation
+
+        text.textContent = prompt;
+        if (box) {
+            box.classList.remove('guidance-updated');
+            // Force reflow so the animation restarts cleanly
+            void box.offsetWidth;
+            box.classList.add('guidance-updated');
+        }
+    }
+
+    /**
+     * Show or hide the spike alert indicators.
+     * @param {object|null} spike  - spike payload from server (or null)
+     * @param {object}      room   - full room state
+     */
+    function updateSpikeAlert(spike, room) {
+        const inlineEl   = $('#spikeInlineAlert');
+        const inlineText = $('#spikeInlineText');
+        const cornerEl   = $('#spikeCornerAlert');
+        const cornerEmo  = $('#spikeCornerEmotion');
+
+        // Also check room active_spikes for non-POV spikes
+        const roomSpikes = (room.active_spikes || []).filter(s => !s.is_pov);
+        const hasSpikeActivity = spike !== null || roomSpikes.length > 0;
+
+        const topSpike = spike || (roomSpikes[0] ? roomSpikes[0] : null);
+        const emotionLabel = topSpike?.peak_emotion ?? '';
+
+        if (hasSpikeActivity) {
+            // Inline alert (inside panel)
+            if (inlineText) inlineText.textContent =
+                emotionLabel ? `${capitalize(emotionLabel)} detected in room` : 'Room Intensity Increasing';
+            if (inlineEl)  inlineEl.classList.add('visible');
+
+            // Corner alert
+            if (cornerEmo) cornerEmo.textContent = emotionLabel ? capitalize(emotionLabel) : '';
+            if (cornerEl) {
+                cornerEl.classList.remove('hiding');
+                cornerEl.classList.add('visible');
+            }
+
+            // Auto-hide corner alert after 4 s
+            if (_spikeCornerTimer) clearTimeout(_spikeCornerTimer);
+            _spikeCornerTimer = setTimeout(() => {
+                if (cornerEl) {
+                    cornerEl.classList.add('hiding');
+                    setTimeout(() => {
+                        cornerEl.classList.remove('visible', 'hiding');
+                    }, 320);
+                }
+                if (inlineEl) inlineEl.classList.remove('visible');
+            }, 4000);
+
+        } else {
+            // No spike — clear inline; corner auto-hides via timer
+            if (inlineEl) inlineEl.classList.remove('visible');
+        }
+    }
+
+    /**
+     * Push one data point to the POV-vs-Room dual-line chart.
+     * Keeps a rolling window of 60 points.
+     * @param {number} povConfidence  - POV dominant emotion score (0–1)
+     * @param {object} room           - room state dict
+     * @param {number} t              - session time in seconds (for label)
+     */
+    function pushRoomComparisonPoint(povConfidence, room, t) {
+        if (!roomComparisonChart) return;
+
+        const WINDOW = 60;
+        const roomMax = room.room_state
+            ? Math.max(...Object.values(room.room_state))
+            : 0;
+
+        const labels   = roomComparisonChart.data.labels;
+        const povData  = roomComparisonChart.data.datasets[0].data;
+        const roomData = roomComparisonChart.data.datasets[1].data;
+
+        labels.push(t + 's');
+        povData.push(+(povConfidence).toFixed(3));
+        roomData.push(+(roomMax).toFixed(3));
+
+        if (labels.length > WINDOW) {
+            labels.shift();
+            povData.shift();
+            roomData.shift();
+        }
+
+        roomComparisonChart.update('none');
+    }
+
+    function capitalize(s) {
+        return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
     }
 
     // ============================================
@@ -1173,6 +1392,15 @@
         
         // Update AU reasoning
         explainEmotion(smoothedEmotion, aus);
+
+        // ---- Room Intelligence updates ----
+        const room = data.room;
+        if (room) {
+            updateHarmonyMeter(room);
+            updateGuidanceBox(room.social_prompt || '');
+            updateSpikeAlert(data.spike || null, room);
+            pushRoomComparisonPoint(smoothedConfidence, room, videoState.duration);
+        }
     }
     
     // Emotion smoothing for stability (moving average)

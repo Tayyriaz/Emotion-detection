@@ -386,6 +386,73 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Room Intelligence Panel -->
+                <div class="card ri-card" id="roomIntelligencePanel">
+                    <div class="card-header">
+                        <h2>🧩 Room Intelligence</h2>
+                        <span class="ri-session-badge" id="riSessionBadge">Waiting for session…</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="ri-grid">
+
+                            <!-- Harmony Meter -->
+                            <div class="ri-harmony-col">
+                                <div class="ri-section-label">Harmony Score</div>
+                                <div class="harmony-ring-wrap" role="img" aria-label="Harmony meter">
+                                    <svg class="harmony-ring" viewBox="0 0 100 100" aria-hidden="true">
+                                        <circle class="ring-bg"   cx="50" cy="50" r="42"/>
+                                        <circle class="ring-fill" cx="50" cy="50" r="42"
+                                                id="harmonyRingFill"/>
+                                    </svg>
+                                    <div class="harmony-center-text">
+                                        <span class="harmony-pct-val" id="harmonyPctVal">--</span>
+                                        <span class="harmony-pct-sym">%</span>
+                                        <span class="harmony-state-label" id="harmonyStateLabel">--</span>
+                                    </div>
+                                </div>
+                                <div class="ri-participants-row" id="riParticipantsRow">
+                                    Participants: 1
+                                </div>
+                            </div>
+
+                            <!-- Guidance Box -->
+                            <div class="ri-guidance-col">
+                                <div class="ri-section-label">Social Guidance</div>
+                                <div class="guidance-box" id="guidanceBox" role="status" aria-live="polite">
+                                    <span class="guidance-icon" aria-hidden="true">💡</span>
+                                    <p class="guidance-text" id="guidanceText">
+                                        Start recording with multiple participants to receive real-time social guidance.
+                                    </p>
+                                </div>
+                                <div class="spike-inline-alert" id="spikeInlineAlert" aria-live="assertive">
+                                    <span class="spike-pulse-dot" aria-hidden="true"></span>
+                                    <span class="spike-inline-text" id="spikeInlineText">Room Intensity Increasing</span>
+                                </div>
+                            </div>
+
+                            <!-- POV vs Room Chart -->
+                            <div class="ri-chart-col">
+                                <div class="ri-section-label">You vs Room — Emotion Strength</div>
+                                <div class="ri-chart-wrap">
+                                    <canvas id="roomComparisonChart"></canvas>
+                                </div>
+                            </div>
+
+                        </div><!-- /.ri-grid -->
+                    </div><!-- /.card-body -->
+                </div><!-- /.ri-card -->
+
+            </div><!-- /#videoTab -->
+
+            <!-- Spike Corner Alert (fixed overlay, outside the tab layout) -->
+            <div class="spike-corner-alert" id="spikeCornerAlert"
+                 role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="spike-corner-dot" aria-hidden="true"></div>
+                <div class="spike-corner-body">
+                    <strong class="spike-corner-title">Room Intensity Increasing</strong>
+                    <span class="spike-corner-emotion" id="spikeCornerEmotion"></span>
+                </div>
             </div>
 
             <!-- Audio Tab -->
