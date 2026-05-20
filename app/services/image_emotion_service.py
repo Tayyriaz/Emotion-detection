@@ -15,8 +15,12 @@ from typing import Tuple
 import cv2
 import numpy as np
 
+from app.config import get_settings
 from app.models.schemas import ImageEmotionResponse
-from app.services.models.hsemotion_detector import HSEmotionDetector
+from app.services.models.hsemotion_detector import (
+    HSEmotionDetector,
+    apply_neutral_priority_guard,
+)
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -49,14 +53,15 @@ def _bytes_to_ndarray(image_bytes: bytes) -> np.ndarray:
 
 def _select_dominant_emotion(emotions: dict) -> Tuple[str, float]:
     """
-    Select the dominant emotion label and its confidence score.
+    Select the dominant emotion label and confidence, applying the same
+    neutral-priority guards as the live video pipeline.
     """
-
     if not emotions:
         return "unknown", 0.0
 
     label, score = max(emotions.items(), key=lambda item: item[1])
-    return label, float(score)
+    threshold = get_settings().NEUTRAL_CONFIDENCE_THRESHOLD
+    return apply_neutral_priority_guard(label, float(score), emotions, threshold)
 
 
 def analyze_image_emotion(image_bytes: bytes) -> ImageEmotionResponse:
@@ -92,10 +97,18 @@ def analyze_image_emotion(image_bytes: bytes) -> ImageEmotionResponse:
     detector = HSEmotionDetector.instance()
     result = detector.analyze_image(image)
 
-    # Extract results
+    # Extract results (detector already applies neutral guard; re-use its fields)
     face_detected = bool(result.get("face_detected", False))
     emotions = result.get("emotions", {}) or {}
-    emotion, confidence = _select_dominant_emotion(emotions)
+    emotion = result.get("emotion") or "neutral"
+    confidence = float(result.get("confidence", 0.0))
+    # Safety pass so HTTP image path cannot drift from guard rules
+    emotion, confidence = apply_neutral_priority_guard(
+        emotion,
+        confidence,
+        emotions,
+        get_settings().NEUTRAL_CONFIDENCE_THRESHOLD,
+    )
     
     logger.debug(
         f"Analysis complete: face_detected={face_detected}, "

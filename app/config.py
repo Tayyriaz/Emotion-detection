@@ -34,9 +34,9 @@ class Settings(BaseSettings):
 
     # Minimum softmax confidence required to accept a non-Neutral prediction.
     # If the top emotion scores below this value the result is overridden to "neutral",
-    # preventing ambiguous micro-expressions from being mis-labelled as Sad/Angry.
-    # Tune between 0.35 (looser) and 0.55 (stricter). Default 0.45 works well in practice.
-    NEUTRAL_CONFIDENCE_THRESHOLD: float = 0.45
+    # preventing ambiguous / tired faces from being mis-labelled as Angry/Fear/Sad.
+    # Tune between 0.45 (looser) and 0.65 (stricter). Default 0.55 reduces false stress flags.
+    NEUTRAL_CONFIDENCE_THRESHOLD: float = 0.55
 
     # Logging / limits
     LOG_LEVEL: str = "INFO"
@@ -44,6 +44,10 @@ class Settings(BaseSettings):
 
     # Model warmup (runs dummy inference on startup to avoid cold start)
     MODEL_WARMUP: bool = True
+
+    # Network / load timeouts (seconds) — prevent hung threads on slow networks
+    MODEL_DOWNLOAD_TIMEOUT_SECONDS: float = 90.0
+    GROQ_REQUEST_TIMEOUT_SECONDS: float = 60.0
 
     # Video processing settings
     VIDEO_FRAME_SKIP: int = 5  # Process every Nth frame (lower = faster emotion change detection)
@@ -75,6 +79,24 @@ class Settings(BaseSettings):
     SESSION_SPIKE_MAX_WEIGHT: float = 3.0
     SESSION_SPIKE_DECAY: float = 0.85
     SESSION_HISTORY_WINDOW: int = 10
+
+    # On-disk session checkpoints (Issue #2 — survive unexpected disconnects)
+    SESSION_BACKUP_PATH: str = "data/sessions_backup.json"
+    SESSION_BACKUP_MAX_CHECKPOINTS: int = 20
+
+    # Face detection: auto prefers MediaPipe when installed, else OpenCV Haar
+    FACE_DETECTION_BACKEND: Literal["auto", "mediapipe", "opencv"] = "auto"
+    MEDIAPIPE_MIN_DETECTION_CONFIDENCE: float = 0.5
+    FACE_BBOX_PADDING_RATIO: float = 0.10
+    MEDIAPIPE_FACE_MODEL_PATH: str = "data/mediapipe_models/blaze_face_full_range.tflite"
+    MEDIAPIPE_FACE_MODEL_URL: str = (
+        "https://storage.googleapis.com/mediapipe-models/face_detector/"
+        "blaze_face_full_range/float16/1/blaze_face_full_range.tflite"
+    )
+
+    # Animal ViT (separate from human NEUTRAL_CONFIDENCE_THRESHOLD)
+    ANIMAL_MIN_CONFIDENCE: float = 0.30
+    ANIMAL_ROI_PADDING_RATIO: float = 0.12
 
     # CORS
     CORS_ORIGINS: List[AnyHttpUrl] = Field(default_factory=list)

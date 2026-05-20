@@ -22,10 +22,18 @@ Thumbs.db
 
 # Project specific
 .env
+.env.*
 *.log
 .pytest_cache/
 .coverage
 htmlcov/
+data/sessions_backup.json
+data/sessions_backup.json.tmp
+data/mediapipe_models/
+
+# Local dev / test (not needed in Render image)
+test_room_logic.py
+agent-transcripts/
 
 # Git
 .git/

@@ -486,6 +486,60 @@ class EmotionSession:
                 ),
             }
 
+    def export_checkpoint(self) -> Dict:
+        """Serializable snapshot for on-disk backup (no nested lock calls)."""
+        with self._lock:
+            participants = [
+                {
+                    "user_id": p.user_id,
+                    "is_pov": p.is_pov,
+                    "emotion_vector": _to_dict(p.current_vector),
+                    "spike_weight": round(p.spike_weight, 3),
+                    "history_frames": len(p.history),
+                }
+                for p in self._participants.values()
+            ]
+            participant_count = len(self._participants)
+
+        room = self.calculate_weighted_room_state()
+        return {
+            "session_id": self.session_id,
+            "participants": participants,
+            "room": room,
+            "participant_count": participant_count,
+            "created_at": self._created_at,
+        }
+
+    def restore_from_checkpoint(self, snapshot: Dict) -> int:
+        """
+        Hydrate participant state from a prior checkpoint.
+
+        Returns the number of participants restored.
+        """
+        restored = 0
+        with self._lock:
+            for pdata in snapshot.get("participants") or []:
+                uid = pdata.get("user_id")
+                if not uid:
+                    continue
+                vec = _to_array(pdata.get("emotion_vector") or {})
+                p = ParticipantState(
+                    user_id=uid,
+                    is_pov=bool(pdata.get("is_pov", False)),
+                    history=deque(maxlen=self.HISTORY_WINDOW),
+                )
+                p.history.append(vec)
+                p.current_vector = vec.copy()
+                p.spike_weight = max(1.0, float(pdata.get("spike_weight", 1.0)))
+                p.last_updated = time.monotonic()
+                self._participants[uid] = p
+                restored += 1
+        if restored:
+            logger.info(
+                f"Session '{self.session_id}': restored {restored} participant(s) from backup"
+            )
+        return restored
+
 
 # ---------------------------------------------------------------------------
 # Session Manager — process-wide singleton
@@ -531,17 +585,64 @@ class SessionManager:
         """Return an existing session or create a new one with that ID."""
         with self._lock:
             if session_id not in self._sessions:
-                self._sessions[session_id] = EmotionSession(session_id)
+                session = EmotionSession(session_id)
+                self._sessions[session_id] = session
                 logger.info(f"SessionManager: created session '{session_id}'")
+                self._try_restore_session_from_disk(session)
             return self._sessions[session_id]
+
+    def _try_restore_session_from_disk(self, session: EmotionSession) -> None:
+        """Load the latest on-disk checkpoint when memory was cleared."""
+        try:
+            from app.services.session_persistence import load_latest_checkpoint
+
+            snapshot = load_latest_checkpoint(session.session_id)
+            if snapshot:
+                session.restore_from_checkpoint(snapshot)
+        except Exception as exc:
+            logger.warning(
+                f"Session '{session.session_id}': backup restore skipped: {exc}"
+            )
 
     def get_session(self, session_id: str) -> Optional[EmotionSession]:
         """Return an existing session, or None if it has not been created."""
         with self._lock:
             return self._sessions.get(session_id)
 
-    def close_session(self, session_id: str) -> bool:
-        """Destroy a session and free its memory. Returns True if it existed."""
+    def checkpoint_session(
+        self,
+        session_id: str,
+        *,
+        reason: str = "checkpoint",
+    ) -> bool:
+        """Write the current in-memory session to the on-disk backup file."""
+        session = self.get_session(session_id)
+        if session is None:
+            return False
+        try:
+            from app.services.session_persistence import save_session_checkpoint
+
+            save_session_checkpoint(
+                session_id,
+                session.export_checkpoint(),
+                reason=reason,
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                f"Session '{session_id}': checkpoint failed ({reason}): {exc}"
+            )
+            return False
+
+    def close_session(self, session_id: str, *, archive: bool = True) -> bool:
+        """
+        Remove a session from memory.
+
+        When ``archive`` is True (default), a final checkpoint is written before
+        the in-memory state is discarded.
+        """
+        if archive:
+            self.checkpoint_session(session_id, reason="session_closed")
         with self._lock:
             if session_id in self._sessions:
                 del self._sessions[session_id]

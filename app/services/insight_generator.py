@@ -29,7 +29,9 @@ returns a str (possibly empty).
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+
+from app.config import get_settings
 
 # ---------------------------------------------------------------------------
 # Emotion groupings used in rule evaluation
@@ -40,6 +42,7 @@ _NEGATIVE_HIGH_AROUSAL = frozenset({"anger", "fear", "disgust", "contempt"})
 _NEGATIVE_LOW_AROUSAL = frozenset({"sadness"})
 _CALM = frozenset({"neutral", "sadness"})      # lower-energy states
 _ALL_NEGATIVE = _NEGATIVE_HIGH_AROUSAL | _NEGATIVE_LOW_AROUSAL
+_WEAK_NEGATIVE = _NEGATIVE_HIGH_AROUSAL | _NEGATIVE_LOW_AROUSAL
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -51,6 +54,54 @@ def _dominant(emotion_dict: Optional[Dict[str, float]]) -> Optional[str]:
     if not emotion_dict:
         return None
     return max(emotion_dict.items(), key=lambda kv: kv[1])[0]
+
+
+def _dominant_with_score(
+    emotion_dict: Optional[Dict[str, float]],
+) -> Tuple[Optional[str], float]:
+    """Return (dominant label, score) or (None, 0.0)."""
+    if not emotion_dict:
+        return None, 0.0
+    label, score = max(emotion_dict.items(), key=lambda kv: kv[1])
+    return label, float(score)
+
+
+def _is_weak_or_ambiguous_negative(
+    emotion_dict: Optional[Dict[str, float]],
+    threshold: Optional[float] = None,
+    margin: float = 0.10,
+) -> bool:
+    """
+    True when negative/stress labels are not strong enough to warrant
+    anxious or distressed guidance (common for tired/neutral faces).
+    """
+    if not emotion_dict:
+        return True
+
+    label, score = _dominant_with_score(emotion_dict)
+    if label is None:
+        return True
+
+    if label == "neutral":
+        return True
+
+    if threshold is None:
+        threshold = get_settings().NEUTRAL_CONFIDENCE_THRESHOLD
+
+    neutral_score = float(emotion_dict.get("neutral", 0.0))
+
+    if label in _WEAK_NEGATIVE:
+        if score < threshold:
+            return True
+        if neutral_score >= score - margin:
+            return True
+
+    return False
+
+
+def _spike_is_strong(spike: Dict, min_magnitude: float = 0.28) -> bool:
+    """Ignore low-magnitude spikes that often come from classifier noise."""
+    return float(spike.get("magnitude", 0.0)) >= min_magnitude
 
 
 def _room_spike_emotions(active_spikes: List[Dict], exclude_pov: bool = True) -> List[str]:
@@ -89,6 +140,49 @@ def _pov_spike_emotions(active_spikes: List[Dict]) -> List[str]:
 # wins.  Rules are grouped for readability; within each group they are
 # ordered from most specific / urgent to least.
 
+# Pet ViT labels — never pass through human NEUTRAL_CONFIDENCE_THRESHOLD rules.
+_ANIMAL_EMOTIONS = frozenset({"angry", "happy", "sad", "other"})
+
+
+def get_animal_emotion_guidance(
+    all_emotions: Dict[str, float],
+    confidence: float,
+) -> str:
+    """
+    Short pet-specific guidance from ViT logits.
+
+    Intentionally separate from ``get_social_guidance()`` (human room / POV).
+    """
+    if not all_emotions:
+        return ""
+
+    settings = get_settings()
+    label = max(all_emotions.items(), key=lambda kv: kv[1])[0]
+    label = (label or "other").lower()
+
+    if confidence < settings.ANIMAL_MIN_CONFIDENCE:
+        return (
+            "Confidence is low — use a clear close-up of your pet's face "
+            "(not a full-body shot) and try again."
+        )
+
+    if label == "happy":
+        return "Your pet looks relaxed and positive in this photo."
+    if label == "sad":
+        return "Your pet may look subdued or tired — check comfort and environment."
+    if label == "angry":
+        return "Your pet may be alert or tense — give them space and observe body language."
+    if label == "other":
+        other_score = float(all_emotions.get("other", 0.0))
+        if other_score > 0.5:
+            return (
+                "Expression is ambiguous — try a sharper front-facing photo of the face."
+            )
+        return "Neutral or mixed expression — lighting and angle strongly affect results."
+
+    return ""
+
+
 def get_social_guidance(room_state_result: Dict) -> str:
     """
     Generate one actionable guidance sentence for the POV user.
@@ -121,33 +215,58 @@ def get_social_guidance(room_state_result: Dict) -> str:
 
     pov_emotion: Optional[str] = _dominant(pov_state)
     room_emotion: Optional[str] = _dominant(room_state)
+    pov_weak = _is_weak_or_ambiguous_negative(pov_state)
+    room_weak = _is_weak_or_ambiguous_negative(room_state)
 
-    room_spikes: List[str] = _room_spike_emotions(active_spikes, exclude_pov=True)
-    pov_spikes: List[str] = _pov_spike_emotions(active_spikes)
+    # Strong spikes only — skip noise-driven false alarms
+    room_spikes_strong = [
+        s["peak_emotion"]
+        for s in active_spikes
+        if not s.get("is_pov") and s.get("peak_emotion") and _spike_is_strong(s)
+    ]
+    pov_spikes_strong = [
+        s["peak_emotion"]
+        for s in active_spikes
+        if s.get("is_pov") and s.get("peak_emotion") and _spike_is_strong(s)
+    ]
+
+    # ------------------------------------------------------------------
+    # TIER 0 — Weak / ambiguous signals → calm, non-alarming copy
+    # ------------------------------------------------------------------
+    if pov_weak and not room_spikes_strong:
+        if room_weak or room_emotion == "neutral":
+            return (
+                "You appear rested or neutral. "
+                "No strong stress signals detected in the room right now."
+            )
+        return (
+            "Your expression looks calm or neutral. "
+            "The room may feel slightly different, but nothing urgent stands out."
+        )
 
     # ------------------------------------------------------------------
     # TIER 1 — Active spikes in the room (most urgent, act first)
     # ------------------------------------------------------------------
 
-    if "anger" in room_spikes:
+    if "anger" in room_spikes_strong:
         return (
             "Strong emotion detected in the room. "
             "It might be a good time to listen."
         )
 
-    if "fear" in room_spikes:
+    if "fear" in room_spikes_strong and not room_weak:
         return (
             "Someone in the room seems distressed. "
             "A brief pause may help everyone feel safer."
         )
 
-    if "sadness" in room_spikes:
+    if "sadness" in room_spikes_strong:
         return (
             "Someone in the room seems upset. "
             "Acknowledging their feelings before moving forward can help."
         )
 
-    if "disgust" in room_spikes or "contempt" in room_spikes:
+    if "disgust" in room_spikes_strong or "contempt" in room_spikes_strong:
         return (
             "There may be discomfort in the room. "
             "Check if there's something that needs to be addressed."
@@ -157,19 +276,26 @@ def get_social_guidance(room_state_result: Dict) -> str:
     # TIER 2 — POV user's own spike (self-regulation cues)
     # ------------------------------------------------------------------
 
-    if "anger" in pov_spikes:
+    if "anger" in pov_spikes_strong and not pov_weak:
         return (
             "You may be feeling intense right now. "
             "Taking a breath before responding can help."
         )
 
-    if "fear" in pov_spikes:
+    if "fear" in pov_spikes_strong and not pov_weak:
+        pov_fear = float((pov_state or {}).get("fear", 0.0))
+        if pov_fear >= get_settings().NEUTRAL_CONFIDENCE_THRESHOLD + 0.05:
+            return (
+                "You seem a bit tense. "
+                "A slow exhale can make it easier to engage calmly."
+            )
+        # Weak fear spike — do not escalate to anxious language
         return (
-            "You seem anxious. "
-            "Grounding yourself first — a slow exhale — can make it easier to engage."
+            "You appear mostly neutral. "
+            "A brief pause is enough if you want to reset before continuing."
         )
 
-    if "sadness" in pov_spikes:
+    if "sadness" in pov_spikes_strong and not pov_weak:
         return (
             "You seem to be experiencing a strong low moment. "
             "It's okay to take a short break if you need one."
@@ -181,6 +307,12 @@ def get_social_guidance(room_state_result: Dict) -> str:
 
     if harmony < 0.50:
 
+        if pov_weak and room_weak:
+            return (
+                "Everyone seems fairly calm. "
+                "You appear rested or neutral — no strong stress signals right now."
+            )
+
         # POV happy ↔ room low-energy or negative
         if pov_emotion in _POSITIVE and room_emotion in _CALM:
             return (
@@ -189,6 +321,11 @@ def get_social_guidance(room_state_result: Dict) -> str:
             )
 
         if pov_emotion in _POSITIVE and room_emotion in _NEGATIVE_HIGH_AROUSAL:
+            if room_weak:
+                return (
+                    "The room reads as mostly calm. "
+                    "Your energy is fine — stay at a comfortable pace."
+                )
             return (
                 "The room may be tense. "
                 "Your upbeat energy might land differently than expected — "
@@ -210,6 +347,11 @@ def get_social_guidance(room_state_result: Dict) -> str:
 
         # POV neutral / calm ↔ room angry / high-arousal
         if pov_emotion in _CALM and room_emotion in _NEGATIVE_HIGH_AROUSAL:
+            if room_weak:
+                return (
+                    "You appear rested or neutral. "
+                    "The room does not show strong stress signals at the moment."
+                )
             return (
                 "There's tension in the room. "
                 "Staying calm is one of the most valuable things you can do right now."
@@ -217,6 +359,11 @@ def get_social_guidance(room_state_result: Dict) -> str:
 
         # POV angry ↔ room calm or positive
         if pov_emotion in _NEGATIVE_HIGH_AROUSAL and room_emotion in (_POSITIVE | {"neutral"}):
+            if pov_weak:
+                return (
+                    "You appear rested or neutral. "
+                    "The room seems relaxed — you're in a good place to engage gently."
+                )
             return (
                 "You may be carrying more intensity than the rest of the room. "
                 "Matching the room's calmer pace can improve understanding."
@@ -234,6 +381,11 @@ def get_social_guidance(room_state_result: Dict) -> str:
 
     if harmony < 0.65:
         if pov_emotion in _NEGATIVE_HIGH_AROUSAL:
+            if pov_weak:
+                return (
+                    "You appear rested or neutral. "
+                    "No strong stress signals — carry on at your own pace."
+                )
             return (
                 "You seem more activated than the rest of the room. "
                 "Sharing what you're feeling briefly could reduce the gap."

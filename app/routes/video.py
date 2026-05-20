@@ -411,6 +411,10 @@ async def video_emotion_websocket(
                     if not sent:
                         break
 
+                    # Quiet periodic checkpoint (in-memory + disk)
+                    if frame_count % 120 == 0:
+                        _session_mgr.checkpoint_session(session_id, reason="periodic")
+
             except ValueError as exc:
                 logger.debug(f"Frame decode error: {exc}")
                 continue
@@ -432,6 +436,12 @@ async def video_emotion_websocket(
         # Cleanup: remove participant; close session when empty
         # ---------------------------------------------------------- #
         try:
+            # Persist room state before tearing down participants (Issue #2).
+            if emotion_session.list_participants():
+                _session_mgr.checkpoint_session(
+                    session_id, reason="client_disconnect"
+                )
+
             # Remove all face-level sub-participants created for this connection.
             # Face IDs follow the pattern "<user_id>_face_<N>".
             detector_ref = HSEmotionDetector.instance() if HSEmotionDetector.is_available() else None

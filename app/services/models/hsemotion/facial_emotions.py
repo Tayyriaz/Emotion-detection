@@ -15,8 +15,8 @@ from PIL import Image
 import torch
 from torchvision import transforms
 import timm
-import urllib.request
 import urllib.error
+import urllib.request
 
 # Optimize PyTorch for CPU performance on limited resources
 # Use 2 threads for better balance on shared CPU (Starter plan)
@@ -24,7 +24,22 @@ num_threads = int(os.getenv('TORCH_NUM_THREADS', '2'))
 torch.set_num_threads(num_threads)
 
 
-def get_model_path(model_name, max_retries=10, retry_delay=15):
+def _download_file_with_timeout(url: str, dest: str, timeout_seconds: float) -> None:
+    """Download a file with a strict socket read timeout (avoids hung startups)."""
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "MultimodalEmotionBackend/2.0"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout_seconds) as response:
+        with open(dest, "wb") as out:
+            while True:
+                chunk = response.read(1024 * 256)
+                if not chunk:
+                    break
+                out.write(chunk)
+
+
+def get_model_path(model_name, max_retries=5, retry_delay=10):
     """
     Get path to pre-trained model file.
     
@@ -57,13 +72,22 @@ def get_model_path(model_name, max_retries=10, retry_delay=15):
     if os.path.isfile(fpath):
         return fpath
     
-    url = 'https://github.com/HSE-asavchenko/face-emotion-recognition/blob/main/models/affectnet_emotions/' + model_file + '?raw=true'
+    url = (
+        'https://github.com/HSE-asavchenko/face-emotion-recognition/blob/main/models/affectnet_emotions/'
+        + model_file + '?raw=true'
+    )
     print(f'Downloading {model_name} from {url}')
-    
-    # Retry logic with exponential backoff
+
+    try:
+        from app.config import get_settings
+        download_timeout = get_settings().MODEL_DOWNLOAD_TIMEOUT_SECONDS
+    except Exception:
+        download_timeout = 90.0
+
+    # Retry logic with exponential backoff (each attempt has its own timeout)
     for attempt in range(max_retries):
         try:
-            urllib.request.urlretrieve(url, fpath)
+            _download_file_with_timeout(url, fpath, download_timeout)
             print(f'Successfully downloaded {model_name}')
             return fpath
         except urllib.error.HTTPError as e:

@@ -36,13 +36,16 @@ class AnimalEmotionResponse(BaseModel):
     """
     Response model for animal (cat/dog) emotion detection.
 
-    Uses milad-mousavi/vit-base-patch16-224-animal-emotion-recognition
-    via Hugging Face transformers pipeline.
+    Uses dima806/pets_facial_expression_detection via Hugging Face pipeline.
     """
 
     success: bool
-    label: str                        # Top predicted emotion label
+    label: str                        # Top predicted emotion label (lowercase)
     confidence_score: float           # 0.0–1.0
     timestamp: str                    # ISO-8601 UTC timestamp
     all_emotions: Dict[str, float] = {}  # Full probability distribution
     backend: str = "vit-animal-emotion"
+    roi_method: str = ""              # opencv_cat_face | center_crop | full_frame
+    roi_bbox: List[int] = []          # [x1, y1, x2, y2] crop used for ViT
+    guidance: str = ""                # Pet-specific copy (not human harmony rules)
+    low_confidence: bool = False

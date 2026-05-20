@@ -58,50 +58,17 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup_event() -> None:
         """
-        Eagerly load HSEmotion on startup (fast, ~2 s).
-        Animal ViT model loads lazily on first /api/animal/analyze request.
+        Non-blocking startup: ML models load in a background daemon thread
+        so the server accepts traffic immediately (no network freeze on boot).
         """
+        from app.services.model_bootstrap import start_background_model_load
+
         logger.info("Starting up Emotion Detection Backend…")
-
-        # --- HSEmotion (eager) ---
-        try:
-            from app.services.models.hsemotion_detector import HSEmotionDetector
-
-            if not HSEmotionDetector.is_available():
-                logger.error("❌ HSEmotion not available. Install: pip install hsemotion")
-                return
-
-            detector = HSEmotionDetector.instance()
-            logger.info("✅ HSEmotion model loaded successfully")
-
-            if settings.MODEL_WARMUP:
-                import numpy as np
-
-                dummy = np.ones((224, 224, 3), dtype=np.uint8) * 128
-                try:
-                    detector.analyze_image(dummy)
-                    logger.info("✅ HSEmotion warmup completed")
-                except Exception as warmup_exc:
-                    logger.warning(f"⚠️ HSEmotion warmup failed (non-critical): {warmup_exc}")
-            else:
-                logger.info("ℹ️ Model warmup skipped (MODEL_WARMUP=false)")
-
-        except Exception as exc:
-            logger.error(f"❌ HSEmotion init failed: {exc}", exc_info=True)
-
-        # --- Animal ViT (eager — pre-warmed so first request is fast) ---
-        try:
-            from app.utils.models import AnimalEmotionModel
-
-            if not AnimalEmotionModel.is_available():
-                logger.warning("⚠️ transformers not installed — animal emotion unavailable")
-            else:
-                AnimalEmotionModel.instance()
-                logger.info("✅ Animal emotion ViT model loaded and warmed up")
-        except Exception as exc:
-            logger.warning(f"⚠️ Animal emotion model failed to load: {exc} — will retry on first request")
-
-        logger.info("🚀 Application startup complete")
+        start_background_model_load(
+            warmup_hsemotion=settings.MODEL_WARMUP,
+            load_animal=True,
+        )
+        logger.info("🚀 Application startup complete (models loading in background)")
 
     # ------------------------------------------------------------------
     # Page routes
@@ -141,60 +108,111 @@ def create_app() -> FastAPI:
 
     @app.get("/health/model", summary="Model health check")
     async def model_health_check() -> dict:
-        """Reports readiness of HSEmotion and the Animal ViT model."""
+        """
+        Reports model readiness without blocking on a cold load.
+        Uses bootstrap thread state; only touches singletons when already ready.
+        """
+        from app.services import model_bootstrap
+        from app.services.models.hsemotion_detector import HSEmotionDetector
+        from app.utils.models import AnimalEmotionModel
+
         report: dict = {"models": {}}
+        boot = model_bootstrap.get_status()
 
-        # HSEmotion
-        try:
-            from app.services.models.hsemotion_detector import HSEmotionDetector
-
-            if not HSEmotionDetector.is_available():
-                report["models"]["hsemotion"] = {
-                    "status": "unhealthy",
-                    "available": False,
-                    "message": "pip install hsemotion",
-                }
-            else:
+        # --- HSEmotion ---
+        hse = boot["hsemotion"]
+        if not HSEmotionDetector.is_available():
+            report["models"]["hsemotion"] = {
+                "status": "unhealthy",
+                "available": False,
+                "loaded": False,
+                "message": "pip install hsemotion",
+            }
+        elif hse["ready"]:
+            try:
                 det = HSEmotionDetector.instance()
                 report["models"]["hsemotion"] = {
                     "status": "healthy",
                     "available": True,
                     "loaded": True,
                     "device": det.recognizer.device,
+                    "face_detection": HSEmotionDetector.active_face_backend(),
                 }
-        except Exception as exc:
-            report["models"]["hsemotion"] = {"status": "unhealthy", "error": str(exc)}
-
-        # Animal ViT (lazy — may not be loaded yet)
-        try:
-            from app.utils.models import AnimalEmotionModel
-
-            if not AnimalEmotionModel.is_available():
-                report["models"]["animal_vit"] = {
+            except Exception as exc:
+                report["models"]["hsemotion"] = {
                     "status": "unhealthy",
-                    "available": False,
-                    "message": "pip install transformers pillow",
-                }
-            elif AnimalEmotionModel._instance is not None:
-                report["models"]["animal_vit"] = {
-                    "status": "healthy",
-                    "available": True,
-                    "loaded": True,
-                    "model": get_settings().ANIMAL_MODEL_NAME,
-                }
-            else:
-                report["models"]["animal_vit"] = {
-                    "status": "healthy",
                     "available": True,
                     "loaded": False,
-                    "note": "Not yet loaded — will load on first /api/animal/analyze request",
-                    "model": get_settings().ANIMAL_MODEL_NAME,
+                    "error": str(exc),
                 }
-        except Exception as exc:
-            report["models"]["animal_vit"] = {"status": "unhealthy", "error": str(exc)}
+        elif hse["loading"]:
+            report["models"]["hsemotion"] = {
+                "status": "loading",
+                "available": True,
+                "loaded": False,
+                "message": "Model loading in background",
+            }
+        elif hse["error"]:
+            report["models"]["hsemotion"] = {
+                "status": "unhealthy",
+                "available": True,
+                "loaded": False,
+                "error": hse["error"],
+            }
+        else:
+            report["models"]["hsemotion"] = {
+                "status": "pending",
+                "available": True,
+                "loaded": False,
+            }
 
-        all_healthy = all(v.get("status") == "healthy" for v in report["models"].values())
-        report["status"] = "healthy" if all_healthy else "degraded"
+        # --- Animal ViT ---
+        ani = boot["animal"]
+        if not AnimalEmotionModel.is_available():
+            report["models"]["animal_vit"] = {
+                "status": "unhealthy",
+                "available": False,
+                "loaded": False,
+                "message": "pip install transformers pillow",
+            }
+        elif ani["ready"] or AnimalEmotionModel._instance is not None:
+            report["models"]["animal_vit"] = {
+                "status": "healthy",
+                "available": True,
+                "loaded": True,
+                "model": settings.ANIMAL_MODEL_NAME,
+            }
+        elif ani["loading"]:
+            report["models"]["animal_vit"] = {
+                "status": "loading",
+                "available": True,
+                "loaded": False,
+                "message": "Model loading in background",
+                "model": settings.ANIMAL_MODEL_NAME,
+            }
+        elif ani["error"]:
+            report["models"]["animal_vit"] = {
+                "status": "degraded",
+                "available": True,
+                "loaded": False,
+                "error": ani["error"],
+                "model": settings.ANIMAL_MODEL_NAME,
+            }
+        else:
+            report["models"]["animal_vit"] = {
+                "status": "pending",
+                "available": True,
+                "loaded": False,
+                "model": settings.ANIMAL_MODEL_NAME,
+            }
+
+        statuses = [m.get("status") for m in report["models"].values()]
+        if all(s == "healthy" for s in statuses):
+            report["status"] = "healthy"
+        elif any(s == "loading" for s in statuses):
+            report["status"] = "loading"
+        else:
+            report["status"] = "degraded"
         return report
 
     @app.get("/metrics", summary="Request metrics")

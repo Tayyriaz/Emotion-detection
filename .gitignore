@@ -36,3 +36,8 @@ htmlcov/
 
 # Model cache
 .hsemotion/
+
+# Session checkpoints (runtime data)
+data/sessions_backup.json
+data/sessions_backup.json.tmp
+data/mediapipe_models/

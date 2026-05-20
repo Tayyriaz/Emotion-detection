@@ -12,10 +12,12 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
+from app.config import get_settings
 from app.models.schemas import AnimalEmotionResponse
+from app.services.insight_generator import get_animal_emotion_guidance
 from app.utils.logging import get_logger, get_request_id
 from app.utils.metrics import get_metrics
-from app.utils.models import AnimalEmotionModel
+from app.utils.models import AnimalEmotionModel, normalize_animal_label
 
 logger = get_logger(__name__)
 
@@ -103,24 +105,36 @@ async def analyze_animal_emotion(
 
         start = time.time()
         model = AnimalEmotionModel.instance()
-        predictions = model.predict(image_bytes)
+        predictions, roi_meta = model.predict(image_bytes)
         elapsed_ms = (time.time() - start) * 1000
         get_metrics().record_model_inference(elapsed_ms)
 
         top = predictions[0]
-        all_emotions = {p["label"]: round(float(p["score"]), 4) for p in predictions}
+        label = normalize_animal_label(top["label"])
+        confidence = round(float(top["score"]), 4)
+        all_emotions = {
+            normalize_animal_label(p["label"]): round(float(p["score"]), 4)
+            for p in predictions
+        }
+        min_conf = get_settings().ANIMAL_MIN_CONFIDENCE
+        low_confidence = confidence < min_conf
+        guidance = get_animal_emotion_guidance(all_emotions, confidence)
 
         logger.info(
-            f"[{request_id}] ✅ Animal emotion: '{top['label']}' "
-            f"({top['score']:.1%}) | {elapsed_ms:.1f}ms"
+            f"[{request_id}] ✅ Animal emotion: '{label}' "
+            f"({confidence:.1%}) roi={roi_meta.get('method')} | {elapsed_ms:.1f}ms"
         )
 
         return AnimalEmotionResponse(
             success=True,
-            label=top["label"],
-            confidence_score=round(float(top["score"]), 4),
+            label=label,
+            confidence_score=confidence,
             timestamp=datetime.now(timezone.utc).isoformat(),
             all_emotions=all_emotions,
+            roi_method=str(roi_meta.get("method", "")),
+            roi_bbox=list(roi_meta.get("bbox") or []),
+            guidance=guidance,
+            low_confidence=low_confidence,
         )
 
     except HTTPException:

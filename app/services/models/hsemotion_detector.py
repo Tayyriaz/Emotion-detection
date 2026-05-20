@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import urllib.request
 import warnings
+from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -12,6 +14,60 @@ from app.config import get_settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# High-arousal negatives that are often confused with neutral/tired faces.
+_NEGATIVE_HIGH_AROUSAL = frozenset({"anger", "fear", "disgust", "contempt"})
+# When top score is below this and neutral is within _NEUTRAL_AMBIGUITY_MARGIN, prefer neutral.
+_NEUTRAL_AMBIGUITY_CEILING = 0.70
+_NEUTRAL_AMBIGUITY_MARGIN = 0.10
+
+
+def apply_neutral_priority_guard(
+    emotion: str,
+    confidence: float,
+    emotions: Dict[str, float],
+    threshold: float,
+) -> tuple[str, float]:
+    """
+    Step down to neutral when the winning class is too weak or statistically
+    tied with neutral — reduces false stressed/anxious labels on resting faces.
+
+    Used by HSEmotionDetector and image_emotion_service so all paths share
+    the same guard logic.
+    """
+    emotion = (emotion or "neutral").lower()
+    neutral_score = float(emotions.get("neutral", 0.0))
+    top_score = float(confidence)
+
+    if emotion == "neutral":
+        return "neutral", neutral_score if neutral_score > 0 else top_score
+
+    # Guard 1: top non-neutral does not clear the confidence bar
+    if top_score < threshold:
+        logger.debug(
+            f"Neutral guard: '{emotion}' ({top_score:.3f}) < threshold {threshold:.3f}"
+        )
+        return "neutral", neutral_score
+
+    # Guard 2: high-arousal labels need a slightly higher bar (fear/anger false positives)
+    if emotion in _NEGATIVE_HIGH_AROUSAL and top_score < threshold + 0.05:
+        logger.debug(
+            f"Neutral guard: weak high-arousal '{emotion}' ({top_score:.3f})"
+        )
+        return "neutral", neutral_score
+
+    # Guard 3: neutral is a close second — tired/ambiguous expression
+    if (
+        top_score < _NEUTRAL_AMBIGUITY_CEILING
+        and neutral_score >= top_score - _NEUTRAL_AMBIGUITY_MARGIN
+    ):
+        logger.debug(
+            f"Neutral guard: '{emotion}' ({top_score:.3f}) ≈ neutral ({neutral_score:.3f})"
+        )
+        return "neutral", neutral_score
+
+    return emotion, top_score
+
 
 # Suppress warnings during import
 with warnings.catch_warnings():
@@ -29,6 +85,29 @@ with warnings.catch_warnings():
             HSEMOTION_AVAILABLE = False
             HSEmotionRecognizer = None
 
+# Optional MediaPipe face detection (Issue #1 — obstructions / tilt)
+MEDIAPIPE_AVAILABLE = False
+MEDIAPIPE_HAS_SOLUTIONS = False
+MEDIAPIPE_HAS_TASKS = False
+_mp = None
+try:
+    import mediapipe as _mp  # type: ignore[import-untyped]
+
+    MEDIAPIPE_AVAILABLE = True
+    MEDIAPIPE_HAS_SOLUTIONS = hasattr(_mp, "solutions") and hasattr(
+        _mp.solutions, "face_detection"
+    )
+    MEDIAPIPE_HAS_TASKS = hasattr(_mp, "tasks") and hasattr(
+        _mp.tasks, "vision"
+    )
+except ImportError:
+    pass
+
+
+def mediapipe_face_detection_usable() -> bool:
+    """True when at least one supported MediaPipe face API is present."""
+    return MEDIAPIPE_AVAILABLE and (MEDIAPIPE_HAS_SOLUTIONS or MEDIAPIPE_HAS_TASKS)
+
 
 class HSEmotionDetector:
     """
@@ -40,7 +119,7 @@ class HSEmotionDetector:
     Architecture:
     - Singleton pattern: Model loaded once per process, reused for all requests
     - Thread-safe: Safe for concurrent API requests
-    - Face detection: Uses OpenCV Haar Cascade (lightweight, fast)
+    - Face detection: MediaPipe when installed; OpenCV Haar Cascade fallback
     - Emotion recognition: HSEmotion EfficientNet model
     
     Supported Emotions:
@@ -116,7 +195,50 @@ class HSEmotionDetector:
 
     # Cache Haar Cascade classifier (load once, reuse)
     _face_cascade = None
-    
+    _mp_face_detection = None  # legacy mp.solutions.face_detection
+    _mp_tasks_detector = None  # mediapipe.tasks.vision.FaceDetector (0.10.31+)
+    _mp_lock: Lock = Lock()
+    _logged_face_backend = False
+
+    @classmethod
+    def mediapipe_available(cls) -> bool:
+        return mediapipe_face_detection_usable()
+
+    @classmethod
+    def active_face_backend(cls) -> str:
+        """Human-readable backend label for logging / health checks."""
+        settings = get_settings()
+        if settings.FACE_DETECTION_BACKEND == "opencv":
+            return "opencv_haar"
+        if not mediapipe_face_detection_usable():
+            return "opencv_haar"
+        if MEDIAPIPE_HAS_TASKS:
+            return "mediapipe_tasks"
+        return "mediapipe_legacy"
+
+    def _prefer_mediapipe(self) -> bool:
+        settings = get_settings()
+        if settings.FACE_DETECTION_BACKEND == "opencv":
+            return False
+        if settings.FACE_DETECTION_BACKEND == "mediapipe":
+            return mediapipe_face_detection_usable()
+        return mediapipe_face_detection_usable()
+
+    def _log_face_backend_once(self) -> None:
+        if HSEmotionDetector._logged_face_backend:
+            return
+        HSEmotionDetector._logged_face_backend = True
+        backend = self.active_face_backend()
+        if backend.startswith("mediapipe"):
+            logger.info(
+                f"Face detection: MediaPipe ({backend}); Haar cascade as fallback"
+            )
+        else:
+            logger.info(
+                "Face detection: OpenCV Haar cascade "
+                "(install mediapipe for improved detection with hats/glasses)"
+            )
+
     @classmethod
     def _get_face_cascade(cls):
         """Get cached Haar Cascade classifier."""
@@ -125,31 +247,207 @@ class HSEmotionDetector:
                 cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
             )
         return cls._face_cascade
-    
+
+    @classmethod
+    def _resolve_mediapipe_face_model_path(cls) -> str:
+        """Download/cache the full-range BlazeFace TFLite model for the Tasks API."""
+        settings = get_settings()
+        model_path = Path(settings.MEDIAPIPE_FACE_MODEL_PATH)
+        if model_path.is_file():
+            return str(model_path.resolve())
+
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Downloading MediaPipe face model to {model_path}…")
+        timeout = settings.MODEL_DOWNLOAD_TIMEOUT_SECONDS
+        with urllib.request.urlopen(settings.MEDIAPIPE_FACE_MODEL_URL, timeout=timeout) as resp:
+            model_path.write_bytes(resp.read())
+        logger.info("MediaPipe face model cached")
+        return str(model_path.resolve())
+
+    @classmethod
+    def _get_mediapipe_face_detection_legacy(cls):
+        """Lazy singleton for MediaPipe FaceDetection (legacy solutions API, <0.10.31)."""
+        if not MEDIAPIPE_HAS_SOLUTIONS or _mp is None:
+            return None
+        if cls._mp_face_detection is None:
+            settings = get_settings()
+            cls._mp_face_detection = _mp.solutions.face_detection.FaceDetection(
+                model_selection=1,  # full-range (Zoom / gallery views)
+                min_detection_confidence=settings.MEDIAPIPE_MIN_DETECTION_CONFIDENCE,
+            )
+        return cls._mp_face_detection
+
+    @classmethod
+    def _get_mediapipe_tasks_detector(cls):
+        """Lazy singleton for MediaPipe Tasks FaceDetector (0.10.31+)."""
+        if not MEDIAPIPE_HAS_TASKS or _mp is None:
+            return None
+        if cls._mp_tasks_detector is None:
+            settings = get_settings()
+            model_path = cls._resolve_mediapipe_face_model_path()
+            options = _mp.tasks.vision.FaceDetectorOptions(
+                base_options=_mp.tasks.BaseOptions(model_asset_path=model_path),
+                running_mode=_mp.tasks.vision.RunningMode.IMAGE,
+                min_detection_confidence=settings.MEDIAPIPE_MIN_DETECTION_CONFIDENCE,
+            )
+            cls._mp_tasks_detector = _mp.tasks.vision.FaceDetector.create_from_options(
+                options
+            )
+        return cls._mp_tasks_detector
+
     # Maximum number of faces to run inference on per frame.
     # Faces are kept largest-first; extras are silently skipped.
     MAX_FACES_PER_FRAME: int = 6
 
-    def _detect_all_faces(self, image: np.ndarray) -> list:
-        """
-        Detect ALL faces in an RGB image using OpenCV Haar Cascade.
+    @staticmethod
+    def _bbox_area(bbox: Tuple[int, int, int, int]) -> int:
+        x1, y1, x2, y2 = bbox
+        return max(0, x2 - x1) * max(0, y2 - y1)
 
-        Returns a list of (x1, y1, x2, y2) tuples in original image
-        coordinates, sorted left-to-right by x1 (stable spatial order,
-        critical for per-tile tracking in gallery views).
+    @staticmethod
+    def _expand_and_clamp_bbox(
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        height: int,
+        width: int,
+        padding_ratio: float,
+    ) -> Tuple[int, int, int, int]:
+        """Pad face box slightly, then clamp to image bounds for safe crops."""
+        bw = max(1, x2 - x1)
+        bh = max(1, y2 - y1)
+        pad_x = int(bw * padding_ratio)
+        pad_y = int(bh * padding_ratio)
+        x1 = max(0, x1 - pad_x)
+        y1 = max(0, y1 - pad_y)
+        x2 = min(width, x2 + pad_x)
+        y2 = min(height, y2 + pad_y)
+        return x1, y1, x2, y2
 
-        Performance guard: at most MAX_FACES_PER_FRAME faces are returned;
-        the smallest are discarded first to keep CPU load bounded.
+    def _finalize_face_boxes(
+        self,
+        boxes: List[Tuple[int, int, int, int]],
+        height: int,
+        width: int,
+    ) -> List[Tuple[int, int, int, int]]:
+        """Drop invalid boxes, cap count, sort left-to-right."""
+        padding = get_settings().FACE_BBOX_PADDING_RATIO
+        valid: List[Tuple[int, int, int, int]] = []
+        for x1, y1, x2, y2 in boxes:
+            x1, y1, x2, y2 = self._expand_and_clamp_bbox(
+                x1, y1, x2, y2, height, width, padding
+            )
+            if x2 > x1 and y2 > y1:
+                valid.append((x1, y1, x2, y2))
+        if not valid:
+            return []
+        if len(valid) > self.MAX_FACES_PER_FRAME:
+            valid = sorted(valid, key=self._bbox_area, reverse=True)[
+                : self.MAX_FACES_PER_FRAME
+            ]
+        valid.sort(key=lambda b: b[0])
+        return valid
+
+    def _detect_all_faces_mediapipe_legacy(
+        self, image: np.ndarray
+    ) -> List[Tuple[int, int, int, int]]:
+        """Legacy mp.solutions.face_detection (MediaPipe <0.10.31)."""
+        detector = self._get_mediapipe_face_detection_legacy()
+        if detector is None:
+            return []
+
+        height, width = image.shape[:2]
+        rgb = image
+        if len(image.shape) == 2:
+            rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+
+        with self._mp_lock:
+            results = detector.process(rgb)
+
+        if not results.detections:
+            return []
+
+        min_conf = get_settings().MEDIAPIPE_MIN_DETECTION_CONFIDENCE
+        boxes: List[Tuple[int, int, int, int]] = []
+        for detection in results.detections:
+            score = detection.score[0] if detection.score else 1.0
+            if score < min_conf:
+                continue
+            bb = detection.location_data.relative_bounding_box
+            x1 = int(bb.xmin * width)
+            y1 = int(bb.ymin * height)
+            x2 = int((bb.xmin + bb.width) * width)
+            y2 = int((bb.ymin + bb.height) * height)
+            boxes.append((x1, y1, x2, y2))
+
+        return self._finalize_face_boxes(boxes, height, width)
+
+    def _detect_all_faces_mediapipe_tasks(
+        self, image: np.ndarray
+    ) -> List[Tuple[int, int, int, int]]:
+        """MediaPipe Tasks FaceDetector (0.10.31+, no mp.solutions)."""
+        detector = self._get_mediapipe_tasks_detector()
+        if detector is None:
+            return []
+
+        height, width = image.shape[:2]
+        rgb = image
+        if len(image.shape) == 2:
+            rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+        rgb = np.ascontiguousarray(rgb)
+
+        mp_image = _mp.Image(image_format=_mp.ImageFormat.SRGB, data=rgb)
+        with self._mp_lock:
+            result = detector.detect(mp_image)
+
+        if not result.detections:
+            return []
+
+        min_conf = get_settings().MEDIAPIPE_MIN_DETECTION_CONFIDENCE
+        boxes: List[Tuple[int, int, int, int]] = []
+        for detection in result.detections:
+            score = (
+                float(detection.categories[0].score)
+                if detection.categories
+                else 1.0
+            )
+            if score < min_conf:
+                continue
+            bb = detection.bounding_box
+            x1 = int(bb.origin_x)
+            y1 = int(bb.origin_y)
+            x2 = int(bb.origin_x + bb.width)
+            y2 = int(bb.origin_y + bb.height)
+            boxes.append((x1, y1, x2, y2))
+
+        return self._finalize_face_boxes(boxes, height, width)
+
+    def _detect_all_faces_mediapipe(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """
+        Detect faces with MediaPipe (RGB input).
+
+        Uses Tasks API on 0.10.31+ wheels; legacy solutions API on older builds.
+        Bounding boxes are (x1, y1, x2, y2) for the existing HSEmotion crop path.
+        """
+        if MEDIAPIPE_HAS_TASKS:
+            return self._detect_all_faces_mediapipe_tasks(image)
+        if MEDIAPIPE_HAS_SOLUTIONS:
+            return self._detect_all_faces_mediapipe_legacy(image)
+        return []
+
+    def _detect_all_faces_haar(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
+        """OpenCV Haar Cascade fallback (RGB input)."""
+        height, width = image.shape[:2]
         max_dimension = 800
         scale = 1.0
 
         working = image
-        if image.shape[1] > max_dimension or image.shape[0] > max_dimension:
-            scale = max_dimension / max(image.shape[1], image.shape[0])
+        if width > max_dimension or height > max_dimension:
+            scale = max_dimension / max(width, height)
             working = cv2.resize(
                 image,
-                (int(image.shape[1] * scale), int(image.shape[0] * scale)),
+                (int(width * scale), int(height * scale)),
                 interpolation=cv2.INTER_LINEAR,
             )
 
@@ -166,33 +464,71 @@ class HSEmotionDetector:
         if len(faces) == 0:
             return []
 
-        # Cap to MAX_FACES_PER_FRAME (keep the largest ones)
-        if len(faces) > self.MAX_FACES_PER_FRAME:
-            faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)[: self.MAX_FACES_PER_FRAME]
-
-        # Scale back to original coords and sort left-to-right
         inv = 1.0 / scale if scale < 1.0 else 1.0
-        result = []
+        boxes: List[Tuple[int, int, int, int]] = []
         for (x, y, w, h) in faces:
             x1 = int(x * inv)
             y1 = int(y * inv)
             x2 = int((x + w) * inv)
             y2 = int((y + h) * inv)
-            result.append((x1, y1, x2, y2))
+            boxes.append((x1, y1, x2, y2))
 
-        result.sort(key=lambda b: b[0])  # left-to-right spatial order
-        return result
+        return self._finalize_face_boxes(boxes, height, width)
 
-    def _detect_face_simple(self, image: np.ndarray) -> Optional[tuple]:
+    def _detect_all_faces_animal(
+        self, image: np.ndarray
+    ) -> List[Tuple[int, int, int, int]]:
+        """
+        Animal ROI boxes — never uses MediaPipe (human-only).
+
+        Delegates to app.services.animal_roi (cat haar + center crop).
+        """
+        from app.services.animal_roi import detect_animal_roi_boxes
+
+        boxes, _method = detect_animal_roi_boxes(image)
+        if not boxes:
+            height, width = image.shape[:2]
+            return [(0, 0, width, height)]
+        return boxes
+
+    def _detect_all_faces(
+        self,
+        image: np.ndarray,
+        *,
+        target: str = "human",
+    ) -> List[Tuple[int, int, int, int]]:
+        """
+        Detect face / ROI boxes in an RGB image.
+
+        target="human"  → MediaPipe Tasks or Haar (HSEmotion pipeline).
+        target="animal" → pet ROI only (no MediaPipe).
+
+        Returns (x1, y1, x2, y2) tuples in original image coordinates, sorted
+        left-to-right. At most MAX_FACES_PER_FRAME faces are returned.
+        """
+        if target == "animal":
+            return self._detect_all_faces_animal(image)
+
+        self._log_face_backend_once()
+
+        if self._prefer_mediapipe():
+            mp_boxes = self._detect_all_faces_mediapipe(image)
+            if mp_boxes:
+                return mp_boxes
+
+        return self._detect_all_faces_haar(image)
+
+    def _detect_face_simple(
+        self, image: np.ndarray, *, target: str = "human"
+    ) -> Optional[Tuple[int, int, int, int]]:
         """
         Single-face detection: returns the largest face bbox or None.
         Kept for backwards compatibility with non-gallery callers.
         """
-        faces = self._detect_all_faces(image)
+        faces = self._detect_all_faces(image, target=target)
         if not faces:
             return None
-        # Return the largest by area among the already-capped list
-        return max(faces, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+        return max(faces, key=self._bbox_area)
 
     def _run_inference_on_crop(
         self, face_img: np.ndarray, face_bbox: tuple
@@ -218,14 +554,13 @@ class HSEmotionDetector:
                 name: float(score)
                 for name, score in zip(emotion_names, scores)
             }
-            confidence = float(scores[np.argmax(scores)])
-
-            if emotion_lower != "neutral" and confidence < self.neutral_confidence_threshold:
-                logger.debug(
-                    f"HSEmotion: overriding '{emotion_lower}' ({confidence:.3f})"
-                    f" → 'neutral' (below threshold {self.neutral_confidence_threshold})"
-                )
-                emotion_lower = "neutral"
+            raw_confidence = float(scores[np.argmax(scores)])
+            emotion_lower, confidence = apply_neutral_priority_guard(
+                emotion_lower,
+                raw_confidence,
+                emotions_dict,
+                self.neutral_confidence_threshold,
+            )
 
             return {
                 "face_detected": True,
@@ -239,7 +574,9 @@ class HSEmotionDetector:
             logger.error(f"HSEmotion inference failed: {exc}", exc_info=True)
             return None
 
-    def analyze_image(self, image: np.ndarray) -> Dict[str, Any]:
+    def analyze_image(
+        self, image: np.ndarray, *, target: str = "human"
+    ) -> Dict[str, Any]:
         """
         Analyze emotion for the single largest face in a BGR image.
 
@@ -254,10 +591,10 @@ class HSEmotionDetector:
             confidence, emotions, aus, face_bbox.
         """
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        face_bbox = self._detect_face_simple(image_rgb)
+        face_bbox = self._detect_face_simple(image_rgb, target=target)
 
         if face_bbox is None:
-            logger.debug("No face detected in image")
+            logger.debug("No face detected in image (target=%s)", target)
             return self._no_face_result()
 
         x1, y1, x2, y2 = face_bbox
@@ -271,7 +608,7 @@ class HSEmotionDetector:
         )
         return result
 
-    def analyze_faces(self, image: np.ndarray) -> list:
+    def analyze_faces(self, image: np.ndarray, *, target: str = "human") -> list:
         """
         Detect ALL faces in a BGR frame and return emotion results for each.
 
@@ -280,7 +617,7 @@ class HSEmotionDetector:
 
         Performance characteristics
         ---------------------------
-        * Detection runs once per frame (shared Haar scan).
+        * Detection runs once per frame (MediaPipe or Haar).
         * At most MAX_FACES_PER_FRAME faces are processed (CPU guard).
         * Faces are returned sorted left-to-right (stable spatial order)
           so callers can use x-position as a proxy participant ID.
@@ -301,7 +638,7 @@ class HSEmotionDetector:
             Empty list when no faces are detected.
         """
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        bboxes = self._detect_all_faces(image_rgb)
+        bboxes = self._detect_all_faces(image_rgb, target=target)
 
         if not bboxes:
             return []

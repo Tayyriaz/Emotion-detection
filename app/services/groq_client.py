@@ -10,6 +10,7 @@ import logging
 from typing import Dict, Optional
 
 from groq import Groq
+from httpx import Timeout
 
 from app.config import get_settings
 from app.utils.logging import get_logger, get_request_id
@@ -37,9 +38,14 @@ class GroqClient:
                 "GROQ_API_KEY not set. Please set it in environment variables or .env file"
             )
         
-        self.client = Groq(api_key=api_key)
+        groq_timeout = Timeout(
+            settings.GROQ_REQUEST_TIMEOUT_SECONDS,
+            connect=10.0,
+        )
+        self.client = Groq(api_key=api_key, timeout=groq_timeout)
         self.whisper_model = settings.GROQ_WHISPER_MODEL
         self.llama_model = settings.GROQ_LLAMA_MODEL
+        self.request_timeout = settings.GROQ_REQUEST_TIMEOUT_SECONDS
         
         logger.info(f"Groq client initialized: Whisper={self.whisper_model}, Llama={self.llama_model}")
 
