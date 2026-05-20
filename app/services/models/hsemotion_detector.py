@@ -223,11 +223,11 @@ class HSEmotionDetector:
         settings = get_settings()
         if settings.FACE_DETECTION_BACKEND == "opencv":
             return False
-        if cls._mp_tasks_init_failed and not MEDIAPIPE_HAS_SOLUTIONS:
+        if HSEmotionDetector._mp_tasks_init_failed and not MEDIAPIPE_HAS_SOLUTIONS:
             return False
         if settings.FACE_DETECTION_BACKEND == "mediapipe":
-            return mediapipe_face_detection_usable() and not cls._mp_tasks_init_failed
-        return mediapipe_face_detection_usable() and not cls._mp_tasks_init_failed
+            return mediapipe_face_detection_usable() and not HSEmotionDetector._mp_tasks_init_failed
+        return mediapipe_face_detection_usable() and not HSEmotionDetector._mp_tasks_init_failed
 
     def _log_face_backend_once(self) -> None:
         if HSEmotionDetector._logged_face_backend:
