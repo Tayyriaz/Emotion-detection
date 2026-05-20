@@ -10,11 +10,16 @@ FROM python:3.11-slim-bookworm
 WORKDIR /app
 
 # --- Render / headless ML system libraries (OpenCV + MediaPipe Tasks) ---
+# MediaPipe Tasks needs libGLESv2.so.2 (libgles2-mesa) + EGL/GBM on Linux Docker
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgomp1 \
     libgl1 \
     libgl1-mesa-glx \
+    libgles2-mesa \
+    libegl1-mesa \
+    libegl1 \
+    libgbm1 \
     libsm6 \
     libxext6 \
     libxrender1 \
@@ -43,15 +48,10 @@ RUN pip install "numpy>=1.24.0,<2.0.0" && \
     pip uninstall -y opencv-contrib-python 2>/dev/null || true && \
     pip install --force-reinstall --no-deps opencv-python-headless==4.10.0.84
 
-# --- Verify critical imports at build time (fail fast on Render build) ---
-RUN python -c "\
-import cv2; \
-import mediapipe as mp; \
-assert hasattr(mp, 'tasks'), 'mediapipe.tasks required (0.10.31+)'; \
-print('opencv', cv2.__version__); \
-print('mediapipe', mp.__version__)"
+# --- OpenCV import smoke test ---
+RUN python -c "import cv2; print('opencv', cv2.__version__)"
 
-# --- Pre-cache models (Render has no persistent HF cache on free/starter) ---
+# --- Pre-cache models + verify MediaPipe Tasks (needs libGLESv2) ---
 RUN mkdir -p data/mediapipe_models && python -c "\
 from pathlib import Path; \
 import urllib.request; \
@@ -59,7 +59,15 @@ url='https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_fu
 dest=Path('data/mediapipe_models/blaze_face_full_range.tflite'); \
 print('Downloading MediaPipe model...'); \
 urllib.request.urlretrieve(url, dest); \
-print('Saved', dest)"
+print('Saved', dest)" && \
+python -c "\
+from pathlib import Path; \
+from mediapipe.tasks.python import BaseOptions; \
+from mediapipe.tasks.python.vision import FaceDetector, FaceDetectorOptions, RunningMode; \
+dest=Path('data/mediapipe_models/blaze_face_full_range.tflite'); \
+opts=FaceDetectorOptions(base_options=BaseOptions(model_asset_path=str(dest)), running_mode=RunningMode.IMAGE); \
+FaceDetector.create_from_options(opts); \
+print('MediaPipe FaceDetector runtime check OK')"
 
 RUN python -c "\
 from transformers import pipeline; \

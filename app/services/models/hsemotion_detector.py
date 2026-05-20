@@ -197,6 +197,7 @@ class HSEmotionDetector:
     _face_cascade = None
     _mp_face_detection = None  # legacy mp.solutions.face_detection
     _mp_tasks_detector = None  # mediapipe.tasks.vision.FaceDetector (0.10.31+)
+    _mp_tasks_init_failed: bool = False  # e.g. missing libGLESv2 on server
     _mp_lock: Lock = Lock()
     _logged_face_backend = False
 
@@ -212,17 +213,21 @@ class HSEmotionDetector:
             return "opencv_haar"
         if not mediapipe_face_detection_usable():
             return "opencv_haar"
-        if MEDIAPIPE_HAS_TASKS:
+        if MEDIAPIPE_HAS_TASKS and not cls._mp_tasks_init_failed:
             return "mediapipe_tasks"
-        return "mediapipe_legacy"
+        if MEDIAPIPE_HAS_SOLUTIONS:
+            return "mediapipe_legacy"
+        return "opencv_haar"
 
     def _prefer_mediapipe(self) -> bool:
         settings = get_settings()
         if settings.FACE_DETECTION_BACKEND == "opencv":
             return False
+        if cls._mp_tasks_init_failed and not MEDIAPIPE_HAS_SOLUTIONS:
+            return False
         if settings.FACE_DETECTION_BACKEND == "mediapipe":
-            return mediapipe_face_detection_usable()
-        return mediapipe_face_detection_usable()
+            return mediapipe_face_detection_usable() and not cls._mp_tasks_init_failed
+        return mediapipe_face_detection_usable() and not cls._mp_tasks_init_failed
 
     def _log_face_backend_once(self) -> None:
         if HSEmotionDetector._logged_face_backend:
@@ -280,7 +285,7 @@ class HSEmotionDetector:
     @classmethod
     def _get_mediapipe_tasks_detector(cls):
         """Lazy singleton for MediaPipe Tasks FaceDetector (0.10.31+)."""
-        if not MEDIAPIPE_HAS_TASKS or _mp is None:
+        if not MEDIAPIPE_HAS_TASKS or _mp is None or cls._mp_tasks_init_failed:
             return None
         if cls._mp_tasks_detector is None:
             settings = get_settings()
@@ -290,9 +295,17 @@ class HSEmotionDetector:
                 running_mode=_mp.tasks.vision.RunningMode.IMAGE,
                 min_detection_confidence=settings.MEDIAPIPE_MIN_DETECTION_CONFIDENCE,
             )
-            cls._mp_tasks_detector = _mp.tasks.vision.FaceDetector.create_from_options(
-                options
-            )
+            try:
+                cls._mp_tasks_detector = _mp.tasks.vision.FaceDetector.create_from_options(
+                    options
+                )
+            except OSError as exc:
+                cls._mp_tasks_init_failed = True
+                logger.warning(
+                    "MediaPipe Tasks unavailable (%s); using OpenCV Haar fallback",
+                    exc,
+                )
+                return None
         return cls._mp_tasks_detector
 
     # Maximum number of faces to run inference on per frame.

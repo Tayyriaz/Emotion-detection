@@ -88,9 +88,15 @@ def _worker(warmup_hsemotion: bool, load_animal: bool) -> None:
             if get_settings().MODEL_WARMUP:
                 import numpy as np
 
-                dummy = np.ones((224, 224, 3), dtype=np.uint8) * 128
-                detector.analyze_image(dummy)
-                logger.info("✅ HSEmotion warmup completed (background)")
+                try:
+                    dummy = np.ones((224, 224, 3), dtype=np.uint8) * 128
+                    detector.analyze_image(dummy)
+                    logger.info("✅ HSEmotion warmup completed (background)")
+                except Exception as warmup_exc:
+                    logger.warning(
+                        "HSEmotion warmup skipped (model still ready): %s",
+                        warmup_exc,
+                    )
 
             with _lock:
                 _hsemotion_ready = True
