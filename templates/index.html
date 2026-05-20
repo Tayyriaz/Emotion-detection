@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Multimodal Emotion Analyzer</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=2026-05-07-04">
+    <link rel="stylesheet" href="/static/css/style.css?v=2026-05-20-deploy">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -21,7 +21,7 @@
                     <h1>Multimodal Emotion Analyzer</h1>
                 </div>
                 <div class="status-badges">
-                    <span class="badge badge-muted" id="uiVersion">UI v2026-05-07-04</span>
+                    <span class="badge badge-muted" id="uiVersion">UI v2026-05-20-deploy</span>
                     <span class="badge badge-idle" id="backendStatus">Backend: Checking...</span>
                     <span class="badge badge-idle" id="serverStatus">Server: Online</span>
                     <span class="badge badge-idle" id="imageStatus">Image: Idle</span>
@@ -197,8 +197,8 @@
                             <div class="emotion-display-large">
                                 <div class="emotion-label-large" id="currentEmotion">-</div>
                                 <div class="confidence-display">
-                                    <span class="confidence-label">Confidence:</span>
-                                    <span class="confidence-value" id="currentConfidence">0%</span>
+                                    <span class="confidence-label">This frame:</span>
+                                    <span class="confidence-value" id="currentConfidence">—</span>
                                 </div>
                             </div>
                             
@@ -330,7 +330,7 @@
                                     </div>
                                     <div class="detail-item">
                                         <span class="detail-label">Face Detection:</span>
-                                        <span class="detail-value">OpenCV Haar Cascade</span>
+                                        <span class="detail-value">MediaPipe Tasks (+ Haar fallback)</span>
                                     </div>
                                     <div class="detail-item">
                                         <span class="detail-label">Pattern:</span>
@@ -468,19 +468,21 @@
                         <div id="rosterEmpty" style="color:var(--subtext);font-size:13px;padding:12px 0;">
                             No participants detected yet. Start a recording to see the live roster.
                         </div>
-                        <table class="roster-table" id="rosterTable" style="display:none;">
-                            <thead>
-                                <tr>
-                                    <th></th>
-                                    <th>Participant</th>
-                                    <th>Emotion</th>
-                                    <th>Confidence</th>
-                                    <th>Role</th>
-                                    <th>Spike</th>
-                                </tr>
-                            </thead>
-                            <tbody id="rosterBody"></tbody>
-                        </table>
+                        <div class="roster-table-wrap" id="rosterTableWrap" style="display:none;">
+                            <table class="roster-table" id="rosterTable">
+                                <thead>
+                                    <tr>
+                                        <th></th>
+                                        <th>Participant</th>
+                                        <th>Emotion</th>
+                                        <th>Confidence</th>
+                                        <th>Role</th>
+                                        <th>Spike</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="rosterBody"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -694,6 +696,7 @@
                                     <div id="animalHeroEmoji" class="animal-hero-emoji">🐾</div>
                                     <div id="animalHeroLabel" class="animal-hero-label">—</div>
                                     <div id="animalHeroConf"  class="animal-hero-conf">Confidence: —</div>
+                                    <p id="animalGuidanceText" class="animal-guidance-text" style="display:none;"></p>
                                     <div class="animal-conf-track">
                                         <div id="animalConfFill" class="animal-conf-fill"></div>
                                     </div>
@@ -734,6 +737,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=2025-12-10-01"></script>
+    <script src="/static/js/app.js?v=2026-05-20-deploy"></script>
 </body>
 </html>

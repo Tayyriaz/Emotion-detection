@@ -31,9 +31,7 @@ htmlcov/
 .git/
 .gitignore
 
-# Docker
-Dockerfile
-.dockerignore
+# Docker (keep Dockerfile in repo; only omit compose extras)
 docker-compose.yml
 
 # Documentation

@@ -24,16 +24,238 @@
         canvasUpdateId: null,  // Continuous canvas update loop
         useBrowserWebcam: true,
         sessionCount: 0,
+        activeSessionId: null,
+        userId: null,
         timeline: [],
         emotionHistory: [],
         auHistory: [],
         ws: null,  // WebSocket connection
         lastBbox: null,        // Legacy single-face bbox (fallback)
         lastFaces: null,       // Multi-face array [{bbox, emotion, confidence, is_pov}]
+        lastRoom: null,        // Last room aggregate (for storage restore)
         videoSource: 'webcam', // 'webcam' | 'screen'
         captureW: 320,         // Width used when last frame was captured for inference
-        captureH: 240          // Height used (aspect-ratio-correct, NOT hardcoded 240)
+        captureH: 240,         // Height used (aspect-ratio-correct, NOT hardcoded 240)
+        resumeFromStorage: false,
     };
+
+    // ------------------------------------------------------------------ //
+    // Browser session persistence (Issue #2 — survive refresh / disconnect)
+    // ------------------------------------------------------------------ //
+    const SESSION_STORAGE_KEY = 'emotion_analyzer_video_session_v1';
+    const SESSION_RESTORE_MAX_AGE_MS = 4 * 60 * 60 * 1000; // 4 hours
+    let _persistSessionTimer = null;
+
+    function createSessionId() {
+        return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    }
+
+    function getOrCreateUserId() {
+        if (videoState.userId) return videoState.userId;
+        try {
+            const existing = localStorage.getItem('emotion_analyzer_user_id');
+            if (existing) {
+                videoState.userId = existing;
+                return existing;
+            }
+        } catch (_) { /* private browsing */ }
+        videoState.userId = `user_${Math.random().toString(36).slice(2, 11)}`;
+        try {
+            localStorage.setItem('emotion_analyzer_user_id', videoState.userId);
+        } catch (_) { /* ignore */ }
+        return videoState.userId;
+    }
+
+    function captureChartSeries() {
+        const series = {};
+        if (emotionChart?.data?.datasets?.[0]) {
+            series.emotionTimeline = {
+                labels: emotionChart.data.labels.slice(),
+                data: emotionChart.data.datasets[0].data.slice(),
+            };
+        }
+        if (roomComparisonChart?.data?.datasets?.length >= 2) {
+            series.roomComparison = {
+                labels: roomComparisonChart.data.labels.slice(),
+                pov: roomComparisonChart.data.datasets[0].data.slice(),
+                room: roomComparisonChart.data.datasets[1].data.slice(),
+            };
+        }
+        if (emotionMultiChart?.data?.datasets) {
+            series.emotionMulti = {
+                labels: emotionMultiChart.data.labels.slice(),
+                datasets: emotionMultiChart.data.datasets.map((ds) => ({
+                    label: ds.label,
+                    data: ds.data.slice(),
+                })),
+            };
+        }
+        return series;
+    }
+
+    function applyChartSeries(series) {
+        if (!series) return;
+        if (series.emotionTimeline && emotionChart) {
+            emotionChart.data.labels = series.emotionTimeline.labels;
+            emotionChart.data.datasets[0].data = series.emotionTimeline.data;
+            emotionChart.update('none');
+        }
+        if (series.roomComparison && roomComparisonChart) {
+            roomComparisonChart.data.labels = series.roomComparison.labels;
+            roomComparisonChart.data.datasets[0].data = series.roomComparison.pov;
+            roomComparisonChart.data.datasets[1].data = series.roomComparison.room;
+            roomComparisonChart.update('none');
+        }
+        if (series.emotionMulti && emotionMultiChart) {
+            emotionMultiChart.data.labels = series.emotionMulti.labels;
+            series.emotionMulti.datasets.forEach((saved, idx) => {
+                if (emotionMultiChart.data.datasets[idx]) {
+                    emotionMultiChart.data.datasets[idx].data = saved.data;
+                }
+            });
+            emotionMultiChart.update('none');
+        }
+    }
+
+    function buildSessionSnapshot(wasInterrupted = false) {
+        const lastEntry = videoState.timeline[videoState.timeline.length - 1];
+        return {
+            version: 1,
+            activeSessionId: videoState.activeSessionId,
+            userId: getOrCreateUserId(),
+            isRecording: videoState.isRecording,
+            wasInterrupted: wasInterrupted || videoState.resumeFromStorage,
+            sessionCount: videoState.sessionCount,
+            startTs: videoState.startTs,
+            duration: videoState.duration,
+            videoSource: videoState.videoSource,
+            timeline: videoState.timeline,
+            emotionHistory: videoState.emotionHistory,
+            auHistory: videoState.auHistory,
+            lastRoom: videoState.lastRoom,
+            chartSeries: captureChartSeries(),
+            lastEmotion: lastEntry?.label || null,
+            lastConfidence: lastEntry?.confidence ?? null,
+            updatedAt: Date.now(),
+        };
+    }
+
+    function persistSessionToStorage(wasInterrupted = false) {
+        if (!videoState.activeSessionId || videoState.timeline.length === 0) return;
+        try {
+            localStorage.setItem(
+                SESSION_STORAGE_KEY,
+                JSON.stringify(buildSessionSnapshot(wasInterrupted))
+            );
+        } catch (err) {
+            console.warn('Session backup to localStorage failed:', err);
+        }
+    }
+
+    function schedulePersistSession() {
+        clearTimeout(_persistSessionTimer);
+        _persistSessionTimer = setTimeout(() => persistSessionToStorage(false), 400);
+    }
+
+    function clearSessionStorage() {
+        try {
+            localStorage.removeItem(SESSION_STORAGE_KEY);
+        } catch (_) { /* ignore */ }
+    }
+
+    function showSessionRestoreBanner(message) {
+        let banner = $('#sessionRestoreBanner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'sessionRestoreBanner';
+            banner.className = 'session-restore-banner';
+            banner.innerHTML = '<span id="sessionRestoreBannerText"></span><button type="button" id="sessionRestoreDismiss" aria-label="Dismiss">×</button>';
+            const videoTab = $('#videoTab');
+            (videoTab || document.body).prepend(banner);
+            $('#sessionRestoreDismiss')?.addEventListener('click', () => banner.remove());
+        }
+        const text = $('#sessionRestoreBannerText');
+        if (text) text.textContent = message;
+        banner.style.display = 'flex';
+    }
+
+    function restoreVideoSessionFromStorage() {
+        let raw;
+        try {
+            raw = localStorage.getItem(SESSION_STORAGE_KEY);
+        } catch (_) {
+            return false;
+        }
+        if (!raw) return false;
+
+        let snap;
+        try {
+            snap = JSON.parse(raw);
+        } catch (_) {
+            clearSessionStorage();
+            return false;
+        }
+
+        if (!snap?.activeSessionId || !Array.isArray(snap.timeline) || snap.timeline.length === 0) {
+            return false;
+        }
+        if (Date.now() - (snap.updatedAt || 0) > SESSION_RESTORE_MAX_AGE_MS) {
+            clearSessionStorage();
+            return false;
+        }
+
+        const recent = Date.now() - (snap.updatedAt || 0) < 15 * 60 * 1000;
+        const shouldRestore = snap.wasInterrupted || snap.isRecording || recent;
+        if (!shouldRestore) return false;
+
+        videoState.activeSessionId = snap.activeSessionId;
+        videoState.userId = snap.userId || getOrCreateUserId();
+        videoState.sessionCount = snap.sessionCount || 0;
+        videoState.timeline = snap.timeline;
+        videoState.emotionHistory = snap.emotionHistory || [];
+        videoState.auHistory = snap.auHistory || [];
+        videoState.duration = snap.duration || (snap.timeline.at(-1)?.t ?? 0);
+        videoState.videoSource = snap.videoSource || 'webcam';
+        videoState.lastRoom = snap.lastRoom || null;
+        videoState.resumeFromStorage = true;
+
+        applyChartSeries(snap.chartSeries);
+
+        const last = snap.timeline[snap.timeline.length - 1];
+        if (last?.scores) updateEmotionBars(last.scores);
+        if (snap.lastRoom) {
+            updateHarmonyMeter(snap.lastRoom);
+            if (snap.lastRoom.social_prompt) updateGuidanceBox(snap.lastRoom.social_prompt);
+        }
+        if (snap.lastEmotion) {
+            $('#currentEmotion').textContent = formatEmotionCertainty(
+                normalizeEmotion(snap.lastEmotion),
+                snap.lastConfidence ?? 0
+            );
+        }
+        $('#videoTimer').textContent = fmtTime(videoState.duration);
+        $('#sessionCount').textContent = `Session: ${videoState.sessionCount}`;
+
+        const pts = snap.timeline.length;
+        showSessionRestoreBanner(
+            `Restored ${pts} tracking point${pts !== 1 ? 's' : ''} from your last session. Press Start to resume live analysis.`
+        );
+        console.log('📦 Restored video session from localStorage:', snap.activeSessionId);
+        return true;
+    }
+
+    function setupSessionPersistenceHooks() {
+        window.addEventListener('pagehide', () => {
+            if (videoState.isRecording || videoState.timeline.length > 0) {
+                persistSessionToStorage(videoState.isRecording);
+            }
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                schedulePersistSession();
+            }
+        });
+    }
 
     const audioState = {
         isRecording: false,
@@ -76,10 +298,11 @@
         setupTabs();
         setupEvents();
         initCharts();
+        setupSessionPersistenceHooks();
+        restoreVideoSessionFromStorage();
         initImageTab();
-        updateBackendStatus();
+        initializeHealthAndModels();
         checkCameras();
-        refreshModelStatus(); // Load model status on startup
         
         console.log('✅ Initialization complete');
     }
@@ -981,20 +1204,20 @@
     // ------------------------------------------------------------------ //
     function updateParticipantRoster(faces) {
         const empty      = $('#rosterEmpty');
-        const table      = $('#rosterTable');
+        const tableWrap  = $('#rosterTableWrap');
         const tbody      = $('#rosterBody');
         const countBadge = $('#rosterFaceCount');
         const exportBtn  = $('#exportSessionBtn');
 
         if (!faces || faces.length === 0) {
             if (empty)  empty.style.display  = 'block';
-            if (table)  table.style.display  = 'none';
+            if (tableWrap) tableWrap.style.display  = 'none';
             if (countBadge) countBadge.textContent = '0 faces';
             return;
         }
 
         if (empty) empty.style.display  = 'none';
-        if (table) table.style.display  = 'table';
+        if (tableWrap) tableWrap.style.display  = 'block';
         if (countBadge) countBadge.textContent = `${faces.length} face${faces.length !== 1 ? 's' : ''}`;
         if (exportBtn)  exportBtn.disabled = false;
 
@@ -1148,9 +1371,17 @@
         videoState.isRecording = true;
         videoState.startTs     = Date.now();
         videoState.sessionCount++;
-        videoState.timeline       = [];
-        videoState.emotionHistory = [];
-        videoState.auHistory      = [];
+
+        if (videoState.resumeFromStorage) {
+            videoState.resumeFromStorage = false;
+            $('#sessionRestoreBanner')?.remove();
+        } else {
+            videoState.activeSessionId = createSessionId();
+            videoState.timeline       = [];
+            videoState.emotionHistory = [];
+            videoState.auHistory      = [];
+            clearSessionStorage();
+        }
 
         // Connect WebSocket (is_pov flag comes from the checkbox)
         try {
@@ -1219,9 +1450,17 @@
             videoState.isRecording = true;
             videoState.startTs = Date.now();
             videoState.sessionCount++;
-            videoState.timeline = [];
-            videoState.emotionHistory = [];
-            videoState.auHistory = [];
+
+            if (videoState.resumeFromStorage) {
+                videoState.resumeFromStorage = false;
+                $('#sessionRestoreBanner')?.remove();
+            } else {
+                videoState.activeSessionId = createSessionId();
+                videoState.timeline = [];
+                videoState.emotionHistory = [];
+                videoState.auHistory = [];
+                clearSessionStorage();
+            }
             
             // Connect WebSocket for real-time analysis (better for Render)
             try {
@@ -1323,6 +1562,10 @@
         $('#videoStatus').textContent = 'Video: Idle';
         $('#videoStatus').className   = 'badge badge-idle';
 
+        clearSessionStorage();
+        videoState.activeSessionId = null;
+        videoState.resumeFromStorage = false;
+
         // Generate session summary
         generateSessionSummary();
     }
@@ -1391,7 +1634,12 @@
             // Use WSS for HTTPS (Render), WS for HTTP (local)
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const isPov = $('#isPovCheckbox')?.checked ?? true;
-            const wsUrl = `${protocol}//${window.location.host}/video/emotion?is_pov=${isPov}`;
+            if (!videoState.activeSessionId) {
+                videoState.activeSessionId = createSessionId();
+            }
+            const userId = encodeURIComponent(getOrCreateUserId());
+            const sessionId = encodeURIComponent(videoState.activeSessionId);
+            const wsUrl = `${protocol}//${window.location.host}/video/emotion?is_pov=${isPov}&session_id=${sessionId}&user_id=${userId}`;
             
             console.log('🔌 Connecting WebSocket to:', wsUrl);
             
@@ -1655,8 +1903,8 @@
         }
 
         if (!success || !faceDetected) {
-            $('#currentEmotion').textContent  = 'No Face';
-            $('#currentConfidence').textContent = '0%';
+            $('#currentEmotion').textContent    = 'No Face';
+            $('#currentConfidence').textContent = '—';
             // Still update room state even when no face is detected
             const room = data.room;
             if (room) {
@@ -1670,19 +1918,33 @@
         // ------------------------------------------------------------------ //
         // Primary face (face_0 / POV) drives the legacy stats widgets
         // ------------------------------------------------------------------ //
-        const emotion    = normalizeEmotion(data.emotion);
-        const confidence = (data.confidence || 0) * 100;
-        const emotions   = data.emotions || {};
-        const aus        = data.aus || {};
+        const emotions = data.emotions || {};
+        const aus      = data.aus || {};
 
-        const smoothedEmotions   = applyEmotionSmoothing(emotions);
-        const smoothedEmotion    = getDominantEmotion(smoothedEmotions);
-        const smoothedConfidence = smoothedEmotions[smoothedEmotion] || confidence / 100;
+        // Raw frame: backend aligns emotion + confidence (including neutral override).
+        const rawEmotionKey   = (data.emotion || 'neutral').toLowerCase();
+        const rawConfidence   = Math.max(0, Math.min(1, Number(data.confidence) || 0));
+        const rawEmotionLabel = normalizeEmotion(rawEmotionKey);
+
+        // Smoothed: moving average of emotion vectors, then dominant + its score.
+        const smoothedEmotions    = applyEmotionSmoothing(emotions);
+        const smoothedEmotionKey  = getDominantEmotion(smoothedEmotions);
+        const smoothedEmotionLabel = normalizeEmotion(smoothedEmotionKey);
+        const smoothedConfidence = Math.max(
+            0,
+            Math.min(1, Number(smoothedEmotions[smoothedEmotionKey]) || 0)
+        );
 
         // ---- Face count badge ----
         const faceCount = data.face_count || 1;
-        $('#currentEmotion').textContent    = normalizeEmotion(smoothedEmotion);
-        $('#currentConfidence').textContent = `${(smoothedConfidence * 100).toFixed(1)}%`;
+        $('#currentEmotion').textContent    = formatEmotionCertainty(
+            smoothedEmotionLabel,
+            smoothedConfidence
+        );
+        $('#currentConfidence').textContent = formatEmotionCertainty(
+            rawEmotionLabel,
+            rawConfidence
+        );
         const auCountEl = $('#auCount');
         if (auCountEl) {
             const facesLabel = faceCount > 1 ? ` | ${faceCount} faces` : '';
@@ -1692,13 +1954,17 @@
         // ---- Timeline & history ----
         const timelineEntry = {
             t:          videoState.duration,
-            label:      smoothedEmotion,
+            label:      smoothedEmotionKey,
             confidence: smoothedConfidence,
             scores:     smoothedEmotions,
             aus,
         };
         videoState.timeline.push(timelineEntry);
-        videoState.emotionHistory.push({ emotion: smoothedEmotion, confidence: smoothedConfidence, time: videoState.duration });
+        videoState.emotionHistory.push({
+            emotion: smoothedEmotionKey,
+            confidence: smoothedConfidence,
+            time: videoState.duration,
+        });
         videoState.auHistory.push({ aus, time: videoState.duration });
 
         // ---- Charts ----
@@ -1709,17 +1975,23 @@
 
         if (data.inference_time_ms) updateModelPerformance(data.inference_time_ms);
 
-        trackEmotionChange(smoothedEmotion);
-        explainEmotion(smoothedEmotion, aus);
+        trackEmotionChange(smoothedEmotionKey);
+        explainEmotion(smoothedEmotionKey, aus);
 
         // ---- Room Intelligence updates ----
         const room = data.room;
         if (room) {
+            videoState.lastRoom = room;
             updateHarmonyMeter(room);
             updateGuidanceBox(room.social_prompt || '');
             updateSpikeAlert(data.spike || null, room);
             pushRoomComparisonPoint(smoothedConfidence, room, videoState.duration);
         }
+
+        if (data.session_id) {
+            videoState.activeSessionId = data.session_id;
+        }
+        schedulePersistSession();
 
         // ---- Participant Roster ----
         if (data.faces && data.faces.length > 0) {
@@ -1751,7 +2023,10 @@
         
         // Calculate average across window
         const smoothed = {};
-        const emotionKeys = ['happiness', 'sadness', 'anger', 'fear', 'surprise', 'disgust', 'neutral'];
+        const emotionKeys = [
+            'happiness', 'sadness', 'anger', 'fear', 'surprise',
+            'disgust', 'contempt', 'neutral',
+        ];
         
         emotionKeys.forEach(key => {
             const sum = emotionHistory.reduce((acc, frame) => acc + (frame[key] || 0), 0);
@@ -2514,9 +2789,17 @@
             'fear': 'Fear', 'fearful': 'Fear',
             'surprise': 'Surprise', 'surprised': 'Surprise',
             'disgust': 'Disgust', 'disgusted': 'Disgust',
-            'neutral': 'Neutral'
+            'contempt': 'Contempt',
+            'neutral': 'Neutral',
+            'frustrated': 'Frustrated',
         };
         return map[e?.toLowerCase()] || e?.charAt(0).toUpperCase() + e?.slice(1) || 'Unknown';
+    }
+
+    /** Display label + probability as one readable string (e.g. "Neutral (42% certain)"). */
+    function formatEmotionCertainty(displayLabel, confidenceFraction) {
+        const pct = Math.round(Math.max(0, Math.min(1, confidenceFraction)) * 100);
+        return `${displayLabel} (${pct}% certain)`;
     }
 
     function fmtTime(s) {
@@ -2563,41 +2846,148 @@
     }
 
     // ============================================
-    // DIAGNOSTIC FUNCTIONS
+    // DIAGNOSTIC FUNCTIONS — single cached health fetch
     // ============================================
-    async function updateBackendStatus() {
-        try {
-            const response = await fetch('/health/model');
-            const data = await response.json();
-            
-            const badge = $('#backendStatus');
-            if (badge) {
-                if (data.status === 'healthy') {
-                    badge.textContent = 'Backend: Online';
-                    badge.className = 'badge badge-live';
-                } else {
-                    badge.textContent = 'Backend: Offline';
-                    badge.className = 'badge badge-idle';
+    const healthCheckCache = {
+        data: null,
+        fetchedAt: 0,
+        promise: null,
+    };
+    const HEALTH_CACHE_MS = 5000;
+    const HEALTH_FETCH_TIMEOUT_MS = 8000;
+
+    async function fetchModelHealth({ force = false } = {}) {
+        const now = Date.now();
+        if (
+            !force
+            && healthCheckCache.data
+            && now - healthCheckCache.fetchedAt < HEALTH_CACHE_MS
+        ) {
+            return healthCheckCache.data;
+        }
+        if (healthCheckCache.promise && !force) {
+            return healthCheckCache.promise;
+        }
+
+        healthCheckCache.promise = (async () => {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), HEALTH_FETCH_TIMEOUT_MS);
+            try {
+                const response = await fetch('/health/model', {
+                    signal: controller.signal,
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
                 }
+                const data = await response.json();
+                healthCheckCache.data = data;
+                healthCheckCache.fetchedAt = Date.now();
+                return data;
+            } finally {
+                clearTimeout(timer);
+                healthCheckCache.promise = null;
             }
-        } catch (error) {
-            const badge = $('#backendStatus');
-            if (badge) {
-                badge.textContent = 'Backend: Error';
-                badge.className = 'badge badge-idle';
+        })();
+
+        return healthCheckCache.promise;
+    }
+
+    function applyBackendStatusBadge(data) {
+        const badge = $('#backendStatus');
+        if (!badge) return;
+
+        const status = data?.status;
+        if (status === 'healthy' || status === 'loading') {
+            badge.textContent = status === 'loading' ? 'Backend: Loading models…' : 'Backend: Online';
+            badge.className = 'badge badge-live';
+        } else if (status === 'degraded') {
+            badge.textContent = 'Backend: Degraded';
+            badge.className = 'badge badge-idle';
+        } else {
+            badge.textContent = 'Backend: Offline';
+            badge.className = 'badge badge-idle';
+        }
+    }
+
+    function applyModelDashboardFromHealth(data) {
+        const hse = data?.models?.hsemotion || {};
+        console.log('🤖 Model status:', data);
+
+        const statusEl = $('#modelStatus');
+        if (statusEl) {
+            if (hse.status === 'healthy' && hse.loaded) {
+                statusEl.textContent = '✅ Loaded & Ready';
+                statusEl.className = 'status-value badge-healthy';
+            } else if (hse.status === 'loading') {
+                statusEl.textContent = '⏳ Loading…';
+                statusEl.className = 'status-value badge-idle';
+            } else {
+                statusEl.textContent = '❌ Not Available';
+                statusEl.className = 'status-value badge-unhealthy';
             }
         }
+
+        const deviceEl = $('#modelDevice');
+        if (deviceEl && hse.device) {
+            deviceEl.textContent = String(hse.device).toUpperCase();
+        }
+
+        applyModelPerformanceMetrics();
+    }
+
+    function applyModelPerformanceMetrics() {
+        if (modelPerformance.totalFrames > 0) {
+            const avgInferenceTime =
+                modelPerformance.totalInferenceTime / modelPerformance.totalFrames;
+            const fps = 1000 / avgInferenceTime;
+
+            const inferenceTimeEl = $('#modelInferenceTime');
+            if (inferenceTimeEl) {
+                inferenceTimeEl.textContent = `${avgInferenceTime.toFixed(1)}ms`;
+            }
+
+            const fpsEl = $('#modelFPS');
+            if (fpsEl) {
+                fpsEl.textContent = `${fps.toFixed(1)} FPS`;
+            }
+        }
+
+        const totalFramesEl = $('#modelTotalFrames');
+        if (totalFramesEl) {
+            totalFramesEl.textContent = modelPerformance.totalFrames.toLocaleString();
+        }
+    }
+
+    async function initializeHealthAndModels() {
+        try {
+            const data = await fetchModelHealth();
+            applyBackendStatusBadge(data);
+            applyModelDashboardFromHealth(data);
+        } catch (error) {
+            console.error('❌ Health check failed:', error);
+            applyBackendStatusBadge({ status: 'unhealthy' });
+            const statusEl = $('#modelStatus');
+            if (statusEl) {
+                statusEl.textContent = '❌ Error';
+                statusEl.className = 'status-value badge-unhealthy';
+            }
+        }
+    }
+
+    async function updateBackendStatus() {
+        const data = await fetchModelHealth({ force: true });
+        applyBackendStatusBadge(data);
+        return data;
     }
 
     async function checkBackend() {
         const output = $('#diagnosticOutput');
         if (!output) return;
-        
+
         output.textContent = 'Checking backend...\n';
-        
+
         try {
-            const response = await fetch('/health/model');
-            const data = await response.json();
+            const data = await fetchModelHealth({ force: true });
             output.textContent = JSON.stringify(data, null, 2);
         } catch (error) {
             output.textContent = `Error: ${error.message}`;
@@ -2656,53 +3046,9 @@ macOS Setup Help:
 
     async function refreshModelStatus() {
         try {
-            const response = await fetch('/health/model');
-            const data = await response.json();
-            
-            console.log('🤖 Model status:', data);
-            
-            // Update model status
-            const statusEl = $('#modelStatus');
-            if (statusEl) {
-                if (data.status === 'healthy' && data.available) {
-                    statusEl.textContent = '✅ Loaded & Ready';
-                    statusEl.className = 'status-value badge-healthy';
-                } else {
-                    statusEl.textContent = '❌ Not Available';
-                    statusEl.className = 'status-value badge-unhealthy';
-                }
-            }
-            
-            // Update model device
-            if (data.device) {
-                const deviceEl = $('#modelDevice');
-                if (deviceEl) {
-                    deviceEl.textContent = data.device.toUpperCase();
-                }
-            }
-            
-            // Calculate performance metrics
-            if (modelPerformance.totalFrames > 0) {
-                const avgInferenceTime = modelPerformance.totalInferenceTime / modelPerformance.totalFrames;
-                const fps = 1000 / avgInferenceTime;
-                
-                const inferenceTimeEl = $('#modelInferenceTime');
-                if (inferenceTimeEl) {
-                    inferenceTimeEl.textContent = `${avgInferenceTime.toFixed(1)}ms`;
-                }
-                
-                const fpsEl = $('#modelFPS');
-                if (fpsEl) {
-                    fpsEl.textContent = `${fps.toFixed(1)} FPS`;
-                }
-            }
-            
-            // Update total frames
-            const totalFramesEl = $('#modelTotalFrames');
-            if (totalFramesEl) {
-                totalFramesEl.textContent = modelPerformance.totalFrames.toLocaleString();
-            }
-            
+            const data = await fetchModelHealth({ force: true });
+            applyBackendStatusBadge(data);
+            applyModelDashboardFromHealth(data);
         } catch (error) {
             console.error('❌ Failed to fetch model status:', error);
             const statusEl = $('#modelStatus');
@@ -2717,10 +3063,10 @@ macOS Setup Help:
         modelPerformance.totalFrames++;
         modelPerformance.totalInferenceTime += inferenceTimeMs;
         modelPerformance.lastUpdate = Date.now();
-        
-        // Update performance display every 10 frames
+
+        // Update local FPS metrics only — no network call per 10 frames
         if (modelPerformance.totalFrames % 10 === 0) {
-            refreshModelStatus();
+            applyModelPerformanceMetrics();
         }
     }
 
@@ -2856,8 +3202,18 @@ macOS Setup Help:
                 }).join('');
             }
 
-            const metaModel = $('#animalMetaModel'); if (metaModel) metaModel.textContent = data.backend || 'vit-animal-emotion';
+            const metaModel = $('#animalMetaModel'); if (metaModel) {
+                const roi = data.roi_method ? ` · crop: ${data.roi_method}` : '';
+                metaModel.textContent = (data.backend || 'vit-animal-emotion') + roi;
+            }
             const metaTime  = $('#animalMetaTime');  if (metaTime)  metaTime.textContent  = `${elapsed}s`;
+
+            const guideEl = $('#animalGuidanceText');
+            if (guideEl) {
+                guideEl.textContent = data.guidance || '';
+                guideEl.style.display = data.guidance ? 'block' : 'none';
+                guideEl.classList.toggle('animal-low-confidence', !!data.low_confidence);
+            }
         }
 
         function clearResult() {

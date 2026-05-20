@@ -1,13 +1,18 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
 services:
   - type: web
     name: emotion-ai-backend
     runtime: docker
-    plan: starter  # Change to 'standard' or 'pro' for production
+    plan: starter
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    dockerCommand: sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: "3.11.0"
       - key: GROQ_API_KEY
-        sync: false  # Set this in Render dashboard
+        sync: false
       - key: MODEL_DEVICE
         value: cpu
       - key: MODEL_WARMUP
@@ -17,10 +22,14 @@ services:
       - key: MAX_IMAGE_SIZE_MB
         value: "8"
       - key: TORCH_NUM_THREADS
-        value: "2"  # Optimize for limited CPU on Starter plan
+        value: "2"
       - key: VIDEO_FRAME_SKIP
-        value: "5"  # Process every 5th frame (faster emotion change detection)
+        value: "5"
       - key: VIDEO_MIN_CONFIDENCE_DELTA
-        value: "0.05"  # Lower threshold for faster emotion change detection
-    healthCheckPath: /health
-    autoDeploy: true
+        value: "0.05"
+      - key: FACE_DETECTION_BACKEND
+        value: auto
+      - key: MODEL_DOWNLOAD_TIMEOUT_SECONDS
+        value: "120"
+      - key: MEDIAPIPE_FACE_MODEL_PATH
+        value: data/mediapipe_models/blaze_face_full_range.tflite

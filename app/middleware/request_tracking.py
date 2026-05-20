@@ -80,5 +80,10 @@ class RequestTrackingMiddleware(BaseHTTPMiddleware):
         # Add request ID to response headers (useful for debugging)
         if response:
             response.headers["X-Request-ID"] = request_id
+            # Static assets: cache on device — does not block on ML bootstrap thread
+            if request.url.path.startswith("/static/"):
+                response.headers.setdefault(
+                    "Cache-Control", "public, max-age=86400, immutable"
+                )
 
         return response

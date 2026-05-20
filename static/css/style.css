@@ -2417,6 +2417,17 @@ body {
     margin-bottom: 14px;
 }
 
+.animal-guidance-text {
+    font-size: 0.85rem;
+    color: var(--subtext);
+    margin: 0 0 12px;
+    line-height: 1.45;
+    text-align: center;
+}
+.animal-guidance-text.animal-low-confidence {
+    color: #f59e0b;
+}
+
 .animal-conf-track {
     width: 100%;
     height: 8px;
@@ -2840,5 +2851,260 @@ body {
         bottom: 60px;
         right: 10px;
         max-width: 200px;
+    }
+}
+
+/* Session restore banner (localStorage recovery) */
+.session-restore-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    color: var(--text);
+    font-size: 0.9rem;
+}
+.session-restore-banner button {
+    background: transparent;
+    border: none;
+    color: var(--subtext);
+    font-size: 1.25rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+/* ============================================
+   PRODUCTION MOBILE DASHBOARD (Render deploy)
+   Tablets & phones — stack grids, charts, video, roster
+   ============================================ */
+@media (max-width: 768px) {
+    .app-container {
+        overflow-x: hidden;
+    }
+
+    .header-content {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .status-badges {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 6px;
+        max-height: none;
+        overflow: visible;
+    }
+
+    .tabs {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+        padding-bottom: 4px;
+        margin-bottom: 12px;
+    }
+
+    .tab-btn {
+        flex: 0 0 auto;
+        min-height: 48px;
+        padding: 10px 14px;
+    }
+
+    .tab-label {
+        display: inline;
+        font-size: 11px;
+    }
+
+    .grid.two {
+        grid-template-columns: 1fr !important;
+        gap: 16px;
+    }
+
+    .card-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .card-actions {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .card-actions .btn {
+        min-height: 44px;
+    }
+
+    .video-display-container {
+        width: 100%;
+        max-width: 100%;
+        aspect-ratio: auto;
+        min-height: 200px;
+        max-height: min(55vh, 420px);
+    }
+
+    #videoStream,
+    #videoCanvas {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        max-height: min(55vh, 420px);
+        object-fit: contain;
+    }
+
+    .controls-row {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .controls-row .btn,
+    #startVideoBtn,
+    #zoomAnalysisBtn,
+    #stopVideoBtn,
+    #pauseVideoBtn,
+    #analyzeImageBtn,
+    #animalAnalyzeBtn {
+        width: 100%;
+        justify-content: center;
+        min-height: 48px;
+        font-size: 15px;
+    }
+
+    .source-indicator {
+        width: 100%;
+        justify-content: center;
+        margin-top: 4px;
+    }
+
+    .chart-card {
+        width: 100%;
+        overflow: hidden;
+    }
+
+    .chart-card canvas {
+        width: 100% !important;
+        max-width: 100%;
+        max-height: 220px;
+    }
+
+    .ri-grid {
+        grid-template-columns: 1fr !important;
+        gap: 20px;
+    }
+
+    .ri-harmony-col,
+    .ri-guidance-col,
+    .ri-chart-col {
+        width: 100%;
+    }
+
+    .ri-chart-col {
+        grid-column: 1 / -1;
+    }
+
+    .ri-chart-wrap {
+        width: 100%;
+        min-height: 180px;
+    }
+
+    .harmony-ring-wrap {
+        width: 110px;
+        height: 110px;
+        margin: 0 auto;
+    }
+
+    .guidance-box {
+        width: 100%;
+    }
+
+    .roster-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        margin: 0 -4px;
+        padding: 0 4px 8px;
+    }
+
+    .roster-table {
+        min-width: 520px;
+    }
+
+    .comparison-table {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .comparison-table-inner {
+        min-width: 360px;
+    }
+
+    .model-status-grid,
+    .performance-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .audio-mode-selector {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .mode-btn {
+        min-height: 56px;
+    }
+
+    .emotion-display-large {
+        padding: 14px 10px;
+    }
+
+    .emotion-label-large {
+        font-size: 28px;
+        word-break: break-word;
+    }
+
+    .spike-corner-alert {
+        left: 10px;
+        right: 10px;
+        max-width: none;
+        bottom: max(12px, env(safe-area-inset-bottom));
+    }
+
+    .diagnostic-panel {
+        left: 10px;
+        right: 10px;
+    }
+
+    .diagnostic-content {
+        width: calc(100vw - 24px);
+        max-width: none;
+        right: auto;
+        left: 0;
+    }
+
+    .animal-hero {
+        padding: 16px 12px;
+    }
+
+    #animalPreviewContainer img,
+    #animalPreviewImg {
+        max-width: 100%;
+        height: auto;
+    }
+}
+
+@media (max-width: 768px) and (orientation: landscape) {
+    .video-display-container,
+    #videoStream,
+    #videoCanvas {
+        max-height: 45vh;
+    }
+
+    .chart-card canvas {
+        max-height: 140px;
     }
 }
