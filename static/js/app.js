@@ -36,6 +36,8 @@
         videoSource: 'webcam', // 'webcam' | 'screen'
         captureW: 320,         // Width used when last frame was captured for inference
         captureH: 240,         // Height used (aspect-ratio-correct, NOT hardcoded 240)
+        facingMode: 'user',    // 'user' = front / selfie, 'environment' = back (mobile)
+        selectedDeviceId: null,
         resumeFromStorage: false,
     };
 
@@ -671,6 +673,7 @@
         $('#stopVideoBtn')?.addEventListener('click', stopVideoRecording);
         $('#pauseVideoBtn')?.addEventListener('click', pauseVideoRecording);
         $('#cameraSelect')?.addEventListener('change', handleCameraChange);
+        $('#cameraFacing')?.addEventListener('change', handleCameraChange);
         $('#exportSessionBtn')?.addEventListener('click', exportSessionCSV);
         
         // Audio events
@@ -1587,31 +1590,84 @@
         }
     }
 
+    function isMobileDevice() {
+        return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+            || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+    }
+
+    function buildVideoConstraints() {
+        const facing = $('#cameraFacing')?.value || 'user';
+        const selectVal = $('#cameraSelect')?.value || 'browser';
+        videoState.facingMode = facing;
+
+        const video = {
+            width:  { ideal: isMobileDevice() ? 1280 : 640 },
+            height: { ideal: isMobileDevice() ? 720 : 480 },
+            facingMode: { ideal: facing },
+        };
+
+        if (selectVal.startsWith('device:')) {
+            const deviceId = selectVal.slice('device:'.length);
+            if (deviceId) {
+                videoState.selectedDeviceId = deviceId;
+                delete video.facingMode;
+                return { video: { ...video, deviceId: { exact: deviceId } } };
+            }
+        }
+
+        videoState.selectedDeviceId = null;
+        return { video };
+    }
+
     async function startBrowserWebcam() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 640, height: 480, facingMode: 'user' }
-            });
-            
+            let stream = null;
+            const constraints = buildVideoConstraints();
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (firstErr) {
+                const facing = videoState.facingMode || 'user';
+                console.warn('Camera constraints failed, retrying:', firstErr.message);
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: facing === 'environment'
+                            ? { exact: 'environment' }
+                            : { ideal: 'user' },
+                        width:  { ideal: 640 },
+                        height: { ideal: 480 },
+                    },
+                });
+            }
+
             const video = $('#videoStream');
             if (video) {
                 video.srcObject = stream;
+                video.setAttribute('playsinline', 'true');
+                video.setAttribute('webkit-playsinline', 'true');
+                video.muted = true;
                 video.style.display = 'block';
                 $('#videoPlaceholder')?.classList.add('hidden');
-                
-                // Setup canvas
+
                 video.addEventListener('loadedmetadata', () => {
                     const canvas = $('#videoCanvas');
                     if (canvas) {
                         canvas.width = video.videoWidth;
                         canvas.height = video.videoHeight;
                     }
-                });
+                    console.log(
+                        `📷 Camera active: ${video.videoWidth}x${video.videoHeight} ` +
+                        `facing=${videoState.facingMode}`
+                    );
+                }, { once: true });
             }
-            
+
             videoState.stream = stream;
         } catch (error) {
-            throw new Error(`Camera access failed: ${error.message}`);
+            const hint = videoState.facingMode === 'environment'
+                ? ' Allow rear-camera permission or switch Lens to Front (Selfie).'
+                : '';
+            throw new Error(`Camera access failed: ${error.message}.${hint}`);
         }
     }
 
@@ -1801,14 +1857,14 @@
 
         if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return;
 
-        // Compute capture size that preserves the source's true aspect ratio.
-        // Hardcoding 320×240 squished 16:9 screen-shares into 4:3, distorting faces.
-        const CAPTURE_W = 320;
+        // Preserve aspect ratio. Rear camera: higher res + quality (faces often farther/smaller).
+        const isRear = videoState.facingMode === 'environment';
+        const CAPTURE_W = isRear ? 480 : 320;
+        const JPEG_QUALITY = isRear ? 0.85 : 0.72;
         const srcW = video.videoWidth  || 640;
         const srcH = video.videoHeight || 480;
         const CAPTURE_H = Math.max(1, Math.round(CAPTURE_W * srcH / srcW));
 
-        // Store so updateVideoCanvas can compute correct bbox scale factors
         videoState.captureW = CAPTURE_W;
         videoState.captureH = CAPTURE_H;
 
@@ -1818,7 +1874,7 @@
         tempCanvas.height = CAPTURE_H;
         tempCtx.drawImage(video, 0, 0, CAPTURE_W, CAPTURE_H);
 
-        const imageData = tempCanvas.toDataURL('image/jpeg', 0.7); // 0.7 = better quality for face detection
+        const imageData = tempCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
         
         // Send frame via WebSocket if connected, otherwise fallback to HTTP POST
         if (videoState.ws && videoState.ws.readyState === WebSocket.OPEN) {
@@ -2840,9 +2896,28 @@
         }
     }
 
-    function handleCameraChange() {
-        // Camera change handler
-        console.log('Camera changed:', $('#cameraSelect')?.value);
+    async function handleCameraChange() {
+        const selectEl = $('#cameraSelect');
+        const selectedOpt = selectEl?.selectedOptions?.[0];
+        if (selectedOpt?.dataset?.facing) {
+            const facingSel = $('#cameraFacing');
+            if (facingSel) facingSel.value = selectedOpt.dataset.facing;
+        }
+
+        const facing = $('#cameraFacing')?.value || 'user';
+        const device = selectEl?.value || 'browser';
+        console.log('Camera changed:', { device, facing });
+
+        if (!videoState.isRecording || !videoState.useBrowserWebcam) return;
+
+        try {
+            stopBrowserWebcam();
+            await startBrowserWebcam();
+            console.log('📷 Camera stream restarted after lens/device change');
+        } catch (err) {
+            console.error('Failed to switch camera:', err);
+            alert(err.message || 'Could not switch camera. Try stopping and starting again.');
+        }
     }
 
     // ============================================
@@ -2996,19 +3071,43 @@
 
     async function checkCameras() {
         try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoDevices = devices.filter(d => d.kind === 'videoinput');
-            
-            const select = $('#cameraSelect');
-            if (select) {
-                select.innerHTML = '<option value="browser">Browser Webcam</option>';
-                videoDevices.forEach((device, index) => {
-                    const option = document.createElement('option');
-                    option.value = index.toString();
-                    option.textContent = device.label || `Camera ${index + 1}`;
-                    select.appendChild(option);
+            if (!navigator.mediaDevices?.enumerateDevices) return;
+
+            // Brief permission unlocks real device labels on mobile (iOS/Android)
+            try {
+                const probe = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 } },
+                    audio: false,
                 });
+                probe.getTracks().forEach((t) => t.stop());
+            } catch (_) {
+                /* user may deny until Start — still list generic cameras */
             }
+
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter((d) => d.kind === 'videoinput');
+
+            const select = $('#cameraSelect');
+            if (!select) return;
+
+            select.innerHTML = '<option value="browser">Default (use Lens setting)</option>';
+            videoDevices.forEach((device, index) => {
+                const option = document.createElement('option');
+                const rawLabel = device.label || `Camera ${index + 1}`;
+                const isBack = /back|rear|environment|wide|tele/i.test(rawLabel);
+                const isFront = /front|user|selfie|face/i.test(rawLabel);
+                option.value = device.deviceId
+                    ? `device:${device.deviceId}`
+                    : 'browser';
+                option.textContent = isBack
+                    ? `${rawLabel} (Rear)`
+                    : isFront
+                        ? `${rawLabel} (Front)`
+                        : rawLabel;
+                if (isBack) option.dataset.facing = 'environment';
+                if (isFront) option.dataset.facing = 'user';
+                select.appendChild(option);
+            });
         } catch (error) {
             console.error('Camera enumeration error:', error);
         }

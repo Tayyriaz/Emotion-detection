@@ -2976,6 +2976,12 @@ body {
         font-size: 15px;
     }
 
+    #cameraFacing,
+    #cameraSelect {
+        min-height: 44px;
+        font-size: 14px;
+    }
+
     .source-indicator {
         width: 100%;
         justify-content: center;

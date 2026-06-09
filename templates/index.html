@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Multimodal Emotion Analyzer</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=2026-05-20-deploy">
+    <link rel="stylesheet" href="/static/css/style.css?v=2026-05-21-mobile-cam">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -149,7 +149,14 @@
                                 <div class="control-group">
                                     <label>Camera:</label>
                                     <select id="cameraSelect" class="select">
-                                        <option value="browser">Browser Webcam</option>
+                                        <option value="browser">Default Webcam</option>
+                                    </select>
+                                </div>
+                                <div class="control-group">
+                                    <label>Lens:</label>
+                                    <select id="cameraFacing" class="select" title="Front = selfie camera, Back = rear camera (mobile)">
+                                        <option value="user">Front (Selfie)</option>
+                                        <option value="environment">Back (Rear)</option>
                                     </select>
                                 </div>
                                 <div class="control-group">
@@ -737,6 +744,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=2026-05-20-deploy"></script>
+    <script src="/static/js/app.js?v=2026-05-21-mobile-cam"></script>
 </body>
 </html>
