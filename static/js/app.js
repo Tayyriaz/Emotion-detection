@@ -305,8 +305,51 @@
         initImageTab();
         initializeHealthAndModels();
         checkCameras();
-        
+        setupSessionHistoryResume();
+
         console.log('✅ Initialization complete');
+    }
+
+    // ── Session History: listen for resume events from session_history.js ────
+    function setupSessionHistoryResume() {
+        document.addEventListener('sh:resume', (e) => {
+            const { session_id, name, checkpoint } = e.detail || {};
+            if (!session_id) return;
+
+            // Pre-fill the session ID so the next "Start Recording" uses it
+            videoState.activeSessionId = session_id;
+
+            // Store in localStorage so it survives a page refresh
+            try {
+                const stored = JSON.parse(localStorage.getItem('emotion_analyzer_video_session_v1') || '{}');
+                stored.sessionId = session_id;
+                if (name) stored.sessionName = name;
+                localStorage.setItem('emotion_analyzer_video_session_v1', JSON.stringify(stored));
+            } catch (_) {}
+
+            // Switch to video tab so the user can see controls
+            const videoTabBtn = document.getElementById('videoTabBtn');
+            if (videoTabBtn) videoTabBtn.click();
+
+            // Show confirmation banner
+            const banner = document.createElement('div');
+            banner.style.cssText =
+                'padding:10px 16px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);'
+                + 'border-radius:8px;color:#a5b4fc;font-size:.85rem;font-weight:600;margin-bottom:12px;';
+            banner.innerHTML =
+                `▶ Resuming: <strong>${name || session_id}</strong> — click Start Recording to continue`;
+            banner.id = 'resumeBanner';
+
+            const placeholder = document.getElementById('videoPlaceholder');
+            const existing = document.getElementById('resumeBanner');
+            if (existing) existing.remove();
+            if (placeholder && placeholder.parentNode) {
+                placeholder.parentNode.insertBefore(banner, placeholder);
+                setTimeout(() => banner.remove(), 8000);
+            }
+
+            console.log('Session resume prepared:', session_id);
+        });
     }
 
     function setupTabs() {
@@ -1077,11 +1120,13 @@
         if (ringEl) {
             const arc = (pct / 100) * RING_CIRCUMFERENCE;
             ringEl.style.strokeDasharray = `${arc} ${RING_CIRCUMFERENCE}`;
-            ringEl.className = 'ring-fill ' + (
+            // SVG elements return SVGAnimatedString for .className (read-only setter)
+            // Must use setAttribute instead.
+            ringEl.setAttribute('class', 'ring-fill ' + (
                 pct >= 80 ? 'harmony-high' :
                 pct >= 50 ? 'harmony-mid'  :
                             'harmony-low'
-            );
+            ));
         }
 
         if (partEl) {
@@ -1583,6 +1628,9 @@
 
         // Generate session summary
         generateSessionSummary();
+
+        // Refresh session history panel (new sessions may have been created)
+        if (window.SessionHistory) window.SessionHistory.refresh();
     }
 
     function pauseVideoRecording() {

@@ -740,6 +740,46 @@
         </main>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════════
+         SESSION HISTORY PANEL
+         ═══════════════════════════════════════════════════════════ -->
+    <div class="sh-panel" id="sessionHistoryPanel">
+        <button class="sh-panel-toggle" id="sessionHistoryToggle">
+            📋 Session History
+        </button>
+        <div class="sh-panel-content" id="sessionHistoryContent" style="display:none;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                <h3 style="margin:0;">📋 Past Sessions</h3>
+                <button class="btn btn-sm" id="sessionHistoryRefreshBtn" title="Refresh list">↺ Refresh</button>
+            </div>
+
+            <!-- New session name input -->
+            <div style="display:flex;gap:8px;margin-bottom:14px;">
+                <input type="text" id="newSessionNameInput"
+                    placeholder="Name this session (optional)…"
+                    maxlength="80"
+                    style="flex:1;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.12);
+                           border-radius:8px;color:#e2e8f0;font-size:.85rem;outline:none;">
+                <button class="btn btn-sm" id="saveSessionNameBtn"
+                        style="white-space:nowrap;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;">
+                    💾 Save Name
+                </button>
+            </div>
+
+            <!-- Session list -->
+            <div id="sessionListContainer">
+                <div id="sessionListLoading" style="text-align:center;padding:20px;color:#64748b;font-size:.85rem;">
+                    Loading sessions…
+                </div>
+                <div id="sessionListEmpty" style="display:none;text-align:center;padding:24px;color:#64748b;font-size:.85rem;">
+                    <div style="font-size:2rem;margin-bottom:8px;opacity:.4;">📭</div>
+                    No past sessions found.<br>Start recording to create one.
+                </div>
+                <div id="sessionListItems"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Diagnostic Panel (Collapsible) -->
     <div class="diagnostic-panel" id="diagnosticPanel">
         <button class="diagnostic-toggle" id="diagnosticToggle">🔧 Diagnostics</button>
@@ -755,6 +795,7 @@
     </div>
 
     <script src="/static/js/feedback.js"></script>
+    <script src="/static/js/session_history.js"></script>
     <script src="/static/js/app.js?v=2026-05-21-mobile-cam"></script>
 </body>
 </html>

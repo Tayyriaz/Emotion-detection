@@ -1310,6 +1310,50 @@ body {
     z-index: 1000;
 }
 
+/* ── Session History Panel (scoped, no overlap with .diagnostic-panel) ── */
+.sh-panel {
+    position: fixed !important;
+    top: 20px !important;
+    left: 20px !important;
+    bottom: auto !important;
+    right: auto !important;
+    z-index: 1001;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.sh-panel-toggle {
+    padding: 10px 18px;
+    background: rgba(99, 102, 241, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    border-radius: 8px;
+    color: #a5b4fc;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+.sh-panel-toggle:hover {
+    background: rgba(99, 102, 241, 0.28);
+}
+
+.sh-panel-content {
+    position: static !important;
+    margin-top: 6px;
+    width: 420px;
+    max-width: calc(100vw - 40px);
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    background: #0b1220;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+}
+
 .diagnostic-toggle {
     padding: 12px 20px;
     background: var(--panel);

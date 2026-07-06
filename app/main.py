@@ -18,6 +18,7 @@ from app.routes.animal_emotion import router as animal_emotion_router
 from app.routes.audio import router as audio_router
 from app.routes.feedback import router as feedback_router
 from app.routes.image import router as image_router
+from app.routes.sessions import router as sessions_router
 from app.routes.video import router as video_router
 from app.utils.logging import configure_logging, get_logger
 from app.utils.metrics import get_metrics
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(audio_router)
     app.include_router(animal_emotion_router)
     app.include_router(feedback_router)
+    app.include_router(sessions_router)
 
     app.mount("/static", StaticFiles(directory="static"), name="static")
 

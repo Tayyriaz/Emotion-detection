@@ -88,6 +88,9 @@ class Settings(BaseSettings):
     SESSION_BACKUP_PATH: str = "data/sessions_backup.json"
     SESSION_BACKUP_MAX_CHECKPOINTS: int = 20
 
+    # Session catalog: stores human-readable names alongside the backup store
+    SESSION_CATALOG_PATH: str = "data/session_catalog.json"
+
     # Face detection: auto prefers MediaPipe when installed, else OpenCV Haar
     FACE_DETECTION_BACKEND: Literal["auto", "mediapipe", "opencv"] = "auto"
     MEDIAPIPE_MIN_DETECTION_CONFIDENCE: float = 0.5
