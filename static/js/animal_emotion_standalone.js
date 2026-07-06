@@ -162,6 +162,17 @@ function renderResult(data, elapsed) {
     if (metaTime)  metaTime.textContent  = `${elapsed}s`;
 
     resultCard.classList.add('visible');
+
+    // Disagree button
+    const fbRow = document.getElementById('standaloneFeedbackRow');
+    if (fbRow && window.Feedback) {
+        fbRow.innerHTML = '';
+        fbRow.appendChild(window.Feedback.createDisagreeButton({
+            modality: 'animal',
+            predicted_label: label,
+            predicted_confidence: conf,
+        }));
+    }
 }
 
 function clearResults() {

@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # NEVER set this to True in production.
     ALLOW_EMOTION_INJECTION: bool = False
 
+    # Feedback / calibration collection
+    # Set ENABLE_FEEDBACK=false to disable the /feedback/calibration endpoint.
+    ENABLE_FEEDBACK: bool = True
+
     # Session Manager — multi-participant emotion tracking
     # SPIKE_THRESHOLD: min per-dimension emotion delta (0–1) to flag a spike
     # SPIKE_MAX_WEIGHT: ceiling multiplier for a fully-spiked participant

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "total": 1,
+  "feedbacks": [
+    {
+      "feedback_id": "3bac9a29-6476-43d1-802b-26f87fa44ab3",
+      "timestamp": "2026-07-06T20:11:28.640278+00:00",
+      "modality": "image",
+      "predicted_label": "happiness",
+      "correct_label": "fear",
+      "predicted_confidence": 0.985203742980957,
+      "session_id": null,
+      "request_id": "3b849540",
+      "extra": null
+    }
+  ],
+  "last_updated": 1783368688.6402783
+}

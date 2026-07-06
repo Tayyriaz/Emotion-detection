@@ -115,6 +115,9 @@
                                 <h3>📊 Emotion Scores</h3>
                                 <div class="emotion-scores-list" id="imageEmotionScores"></div>
                             </div>
+
+                            <!-- Feedback -->
+                            <div id="imageFeedbackRow" style="display:none; margin-top:10px;"></div>
                             
                             <!-- Empty State -->
                             <div class="empty-state-audio" id="imageEmptyState">
@@ -207,6 +210,8 @@
                                     <span class="confidence-label">This frame:</span>
                                     <span class="confidence-value" id="currentConfidence">—</span>
                                 </div>
+                                <!-- Feedback -->
+                                <div id="videoFeedbackRow" style="margin-top:8px;"></div>
                             </div>
                             
                             <!-- Emotion Timeline Chart -->
@@ -639,7 +644,10 @@
                                 <h3>🔍 Raw JSON</h3>
                                 <pre class="json-content" id="audioJson"></pre>
                             </div>
-                            
+
+                            <!-- Feedback -->
+                            <div id="audioFeedbackRow" style="display:none; margin-top:10px;"></div>
+
                             <!-- Empty State -->
                             <div class="empty-state-audio" id="audioEmptyState">
                                 <div class="empty-icon">🎤</div>
@@ -719,6 +727,8 @@
                                     <span class="animal-meta-key">Time:</span>
                                     <span id="animalMetaTime">—</span>
                                 </div>
+                                <!-- Feedback -->
+                                <div id="animalFeedbackRow" style="margin-top:10px;"></div>
                             </div>
                         </div>
                     </div>
@@ -744,6 +754,7 @@
         </div>
     </div>
 
+    <script src="/static/js/feedback.js"></script>
     <script src="/static/js/app.js?v=2026-05-21-mobile-cam"></script>
 </body>
 </html>

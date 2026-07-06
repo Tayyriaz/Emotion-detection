@@ -652,7 +652,19 @@
             }
             $('#imageEmotionDetails').style.display = 'block';
         }
-        
+
+        // Disagree button
+        const imgFbRow = $('#imageFeedbackRow');
+        if (imgFbRow && window.Feedback) {
+            imgFbRow.style.display = 'block';
+            imgFbRow.innerHTML = '';
+            imgFbRow.appendChild(window.Feedback.createDisagreeButton({
+                modality: 'image',
+                predicted_label: data.emotion || 'unknown',
+                predicted_confidence: data.confidence || null,
+            }));
+        }
+
         console.log('✅ Image results displayed successfully');
     }
 
@@ -2001,6 +2013,19 @@
             rawEmotionLabel,
             rawConfidence
         );
+
+        // Disagree button — updates every detected emotion change
+        const videoFbRow = $('#videoFeedbackRow');
+        if (videoFbRow && window.Feedback && smoothedEmotionLabel && smoothedEmotionLabel !== '-') {
+            videoFbRow.innerHTML = '';
+            videoFbRow.appendChild(window.Feedback.createDisagreeButton({
+                modality: 'video',
+                predicted_label: smoothedEmotionKey || smoothedEmotionLabel,
+                predicted_confidence: smoothedConfidence,
+                session_id: videoState.activeSessionId || null,
+            }));
+        }
+
         const auCountEl = $('#auCount');
         if (auCountEl) {
             const facesLabel = faceCount > 1 ? ` | ${faceCount} faces` : '';
@@ -2519,7 +2544,19 @@
             jsonViewerSection.style.display = 'block';
             jsonContent.textContent = JSON.stringify(data, null, 2);
         }
-        
+
+        // Disagree button
+        const audioFbRow = $('#audioFeedbackRow');
+        if (audioFbRow && window.Feedback) {
+            audioFbRow.style.display = 'block';
+            audioFbRow.innerHTML = '';
+            audioFbRow.appendChild(window.Feedback.createDisagreeButton({
+                modality: 'audio',
+                predicted_label: data.emotion || 'unknown',
+                predicted_confidence: data.confidence || null,
+            }));
+        }
+
         console.log('Audio results displayed successfully');
     }
 
@@ -3312,6 +3349,17 @@ macOS Setup Help:
                 guideEl.textContent = data.guidance || '';
                 guideEl.style.display = data.guidance ? 'block' : 'none';
                 guideEl.classList.toggle('animal-low-confidence', !!data.low_confidence);
+            }
+
+            // Disagree button
+            const animalFbRow = $('#animalFeedbackRow');
+            if (animalFbRow && window.Feedback) {
+                animalFbRow.innerHTML = '';
+                animalFbRow.appendChild(window.Feedback.createDisagreeButton({
+                    modality: 'animal',
+                    predicted_label: data.label || 'unknown',
+                    predicted_confidence: data.confidence_score || null,
+                }));
             }
         }
 
