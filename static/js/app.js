@@ -39,6 +39,8 @@
         facingMode: 'user',    // 'user' = front / selfie, 'environment' = back (mobile)
         selectedDeviceId: null,
         resumeFromStorage: false,
+        _lastCoachingEmotion: null,   // for coaching tip change-detection
+        _lastPostureLabel: null,      // for posture badge change-detection
     };
 
     // ------------------------------------------------------------------ //
@@ -707,6 +709,9 @@
                 predicted_confidence: data.confidence || null,
             }));
         }
+
+        // Coaching tips
+        renderCoachingTips($('#imageCoachingTips'), data.reason || null, data.suggestion || null);
 
         console.log('✅ Image results displayed successfully');
     }
@@ -2074,6 +2079,20 @@
             }));
         }
 
+        // Posture badge — update only when posture label changes
+        if (data.posture_label && data.posture_label !== 'no_pose') {
+            if (data.posture_label !== videoState._lastPostureLabel) {
+                videoState._lastPostureLabel = data.posture_label;
+                renderPostureBadge($('#videoPostureRow'), data.posture_label, data.posture_confidence);
+            }
+        }
+
+        // Coaching tips — update only when emotion key changed to avoid DOM thrash
+        if (smoothedEmotionKey !== videoState._lastCoachingEmotion) {
+            videoState._lastCoachingEmotion = smoothedEmotionKey;
+            renderCoachingTips($('#videoCoachingTips'), data.reason || null, data.suggestion || null);
+        }
+
         const auCountEl = $('#auCount');
         if (auCountEl) {
             const facesLabel = faceCount > 1 ? ` | ${faceCount} faces` : '';
@@ -2605,6 +2624,9 @@
             }));
         }
 
+        // Coaching tips
+        renderCoachingTips($('#audioCoachingTips'), data.reason || null, data.suggestion || null);
+
         console.log('Audio results displayed successfully');
     }
 
@@ -2935,6 +2957,75 @@
             'frustrated': 'Frustrated',
         };
         return map[e?.toLowerCase()] || e?.charAt(0).toUpperCase() + e?.slice(1) || 'Unknown';
+    }
+
+    /**
+     * Posture label → display name + icon mapping.
+     * Scoped to this function — used only by renderPostureBadge.
+     */
+    const _POSTURE_META = {
+        upright:       { label: 'Upright',       icon: '&#129505;' },   // 🧘
+        slouching:     { label: 'Slouching',      icon: '&#128557;' },   // 😢 posture
+        leaning_left:  { label: 'Leaning Left',   icon: '&#8592;' },     // ←
+        leaning_right: { label: 'Leaning Right',  icon: '&#8594;' },     // →
+        crossed_arms:  { label: 'Crossed Arms',   icon: '&#9940;' },     // 🚫
+        no_pose:       { label: 'No Pose',        icon: '&#128100;' },   // 👤
+    };
+
+    /**
+     * Render a posture badge into a container element.
+     * Uses scoped .posture-badge class only — does not touch sh-panel or diagnostic-panel.
+     *
+     * @param {HTMLElement|null} containerEl
+     * @param {string|null}      postureLabel  — e.g. "slouching"
+     * @param {number|null}      confidence    — 0–1
+     */
+    function renderPostureBadge(containerEl, postureLabel, confidence) {
+        if (!containerEl) return;
+        if (!postureLabel || postureLabel === 'no_pose') {
+            containerEl.style.display = 'none';
+            containerEl.innerHTML = '';
+            return;
+        }
+        const meta  = _POSTURE_META[postureLabel] || { label: postureLabel, icon: '&#128100;' };
+        const pct   = confidence != null ? ` · ${(confidence * 100).toFixed(0)}%` : '';
+        containerEl.style.display = '';
+        containerEl.innerHTML = `
+            <span class="posture-badge" data-label="${postureLabel}">
+                <span class="posture-badge-icon">${meta.icon}</span>
+                Posture: ${meta.label}${pct}
+            </span>`;
+    }
+
+    /**
+     * Render coaching tips (reason + suggestion) into a container element.
+     * Uses scoped .action-coaching / .action-reason / .action-tip classes only.
+     *
+     * @param {HTMLElement|null} containerEl  — the placeholder div
+     * @param {string|null}      reason       — why this emotion was detected
+     * @param {string|null}      suggestion   — actionable improvement tip
+     */
+    function renderCoachingTips(containerEl, reason, suggestion) {
+        if (!containerEl) return;
+        if (!reason && !suggestion) {
+            containerEl.style.display = 'none';
+            containerEl.innerHTML = '';
+            return;
+        }
+        containerEl.style.display = '';
+        const reasonHtml = reason
+            ? `<div class="action-reason">
+                 <span class="action-reason-icon">&#128269;</span>
+                 <span>${reason}</span>
+               </div>`
+            : '';
+        const tipHtml = suggestion
+            ? `<div class="action-tip">
+                 <span class="action-tip-icon">&#128161;</span>
+                 <span>${suggestion}</span>
+               </div>`
+            : '';
+        containerEl.innerHTML = `<div class="action-coaching">${reasonHtml}${tipHtml}</div>`;
     }
 
     /** Display label + probability as one readable string (e.g. "Neutral (42% certain)"). */
@@ -3409,6 +3500,9 @@ macOS Setup Help:
                     predicted_confidence: data.confidence_score || null,
                 }));
             }
+
+            // Coaching tips
+            renderCoachingTips($('#animalCoachingTips'), data.reason || null, data.suggestion || null);
         }
 
         function clearResult() {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total": 1,
+  "total": 2,
   "feedbacks": [
     {
       "feedback_id": "3bac9a29-6476-43d1-802b-26f87fa44ab3",
@@ -12,7 +12,18 @@
       "session_id": null,
       "request_id": "3b849540",
       "extra": null
+    },
+    {
+      "feedback_id": "07911748-c8e2-4939-95dc-e892c2ccd60b",
+      "timestamp": "2026-07-07T10:39:13.328497+00:00",
+      "modality": "animal",
+      "predicted_label": "other",
+      "correct_label": "happy",
+      "predicted_confidence": 0.2697,
+      "session_id": null,
+      "request_id": "27fdc647",
+      "extra": null
     }
   ],
-  "last_updated": 1783368688.6402783
+  "last_updated": 1783420753.3299112
 }

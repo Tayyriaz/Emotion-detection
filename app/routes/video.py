@@ -38,6 +38,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, HTTPExcept
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.services.coaching_tips import get_coaching_tips
 from app.services.insight_generator import get_social_guidance
 from app.services.models.hsemotion_detector import HSEmotionDetector
 from app.services.session_manager import SessionManager
@@ -131,6 +132,9 @@ async def video_emotion_websocket(
     last_emotion = None
     last_confidence = 0.0
     last_ping_time = time.time()
+    # Posture state — only populated when ENABLE_BODY_LANGUAGE=true
+    last_posture_result: dict | None = None
+    _POSTURE_SKIP = 30   # run posture analysis every 30 emotion-frames (~3s at 10fps)
 
     def is_connected() -> bool:
         try:
@@ -284,6 +288,17 @@ async def video_emotion_websocket(
 
                 inference_ms = round((time.time() - start_time) * 1000, 1)
 
+                # ── Posture analysis (optional, behind feature flag) ── #
+                # Runs every _POSTURE_SKIP emotion-frames to minimise overhead.
+                # Failure is silently caught so it never breaks the emotion path.
+                if settings.ENABLE_BODY_LANGUAGE and frame_count % _POSTURE_SKIP == 0:
+                    try:
+                        from app.services.posture_service import PostureDetector
+                        if PostureDetector.is_available():
+                            last_posture_result = PostureDetector.instance().analyze(image)
+                    except Exception as _pe:
+                        logger.debug(f"Posture analysis skipped: {_pe}")
+
                 # -------------------------------------------------- #
                 # Session manager update — one participant per face
                 #
@@ -383,6 +398,11 @@ async def video_emotion_websocket(
                     last_emotion = primary_emotion if any_face_detected else None
                     last_confidence = primary_confidence
 
+                    _v_reason, _v_suggestion = (
+                        get_coaching_tips("video", primary_emotion, primary_confidence)
+                        if any_face_detected and primary_emotion
+                        else ("", "")
+                    )
                     sent = await safe_send({
                         "type": "emotion",
                         "success": any_face_detected,
@@ -407,6 +427,18 @@ async def video_emotion_websocket(
                         "spike": spike_payload,
                         # --- Room aggregate ---
                         "room": room_state,
+                        # --- Coaching tips (null when no face / unknown emotion) ---
+                        "reason": _v_reason or None,
+                        "suggestion": _v_suggestion or None,
+                        # --- Body language / posture (null when feature is off) ---
+                        "posture_label": (
+                            last_posture_result["posture_label"]
+                            if last_posture_result else None
+                        ),
+                        "posture_confidence": (
+                            last_posture_result["posture_confidence"]
+                            if last_posture_result else None
+                        ),
                     })
                     if not sent:
                         break

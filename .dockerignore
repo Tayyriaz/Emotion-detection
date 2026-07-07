@@ -27,9 +27,8 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
-data/sessions_backup.json
-data/sessions_backup.json.tmp
-data/mediapipe_models/
+# Entire data/ dir is runtime state; Dockerfile recreates what it needs at build time
+data/
 
 # Local dev / test (not needed in Render image)
 test_room_logic.py

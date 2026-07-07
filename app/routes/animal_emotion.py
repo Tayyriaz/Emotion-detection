@@ -14,6 +14,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.config import get_settings
 from app.models.schemas import AnimalEmotionResponse
+from app.services.coaching_tips import get_coaching_tips
 from app.services.insight_generator import get_animal_emotion_guidance
 from app.utils.logging import get_logger, get_request_id
 from app.utils.metrics import get_metrics
@@ -125,6 +126,7 @@ async def analyze_animal_emotion(
             f"({confidence:.1%}) roi={roi_meta.get('method')} | {elapsed_ms:.1f}ms"
         )
 
+        _reason, _suggestion = get_coaching_tips("animal", label, confidence)
         return AnimalEmotionResponse(
             success=True,
             label=label,
@@ -135,6 +137,8 @@ async def analyze_animal_emotion(
             roi_bbox=list(roi_meta.get("bbox") or []),
             guidance=guidance,
             low_confidence=low_confidence,
+            reason=_reason or None,
+            suggestion=_suggestion or None,
         )
 
     except HTTPException:

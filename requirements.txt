@@ -2,18 +2,18 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 pydantic-settings==2.5.2
-opencv-python-headless==4.10.0.84
-# Pin <2: torch/hsemotion break on numpy 2.x; reinstall after `pip install mediapipe`
-numpy>=1.24.0,<2.0.0
-
-# Face detection (Tasks API on 0.10.31+; legacy solutions on older wheels).
-# After installing mediapipe, remove its opencv-contrib-python (conflicts with numpy<2):
-#   pip uninstall -y opencv-contrib-python && pip install opencv-python-headless==4.10.0.84
-mediapipe>=0.10.14,<0.11
 python-multipart==0.0.9
 
-# Human Emotion Detection - HSEmotion (EfficientNet-based)
-hsemotion>=0.1.0
+# OpenCV — contrib variant satisfies mediapipe's bundled dep;
+# headless variant is NOT used so both packages are not present simultaneously.
+opencv-contrib-python==4.10.0.84
+numpy==1.26.4
+
+# Face detection (Tasks API — mediapipe 0.10.35 supports Tasks only, NOT solutions.pose)
+mediapipe==0.10.35
+
+# Human Emotion Detection — HSEmotion (EfficientNet-based)
+hsemotion==0.3.0
 timm==0.9.*
 pillow>=9.0.0
 
@@ -22,8 +22,8 @@ pillow>=9.0.0
 torch==2.5.1+cpu
 torchvision==0.20.1+cpu
 
-# Audio Emotion Detection - Groq API
+# Audio Emotion Detection — Groq API
 groq>=0.9.0
 
-# Animal Emotion Detection - Hugging Face ViT
-transformers>=4.35.0
+# Animal Emotion Detection — Hugging Face ViT
+transformers==5.5.0

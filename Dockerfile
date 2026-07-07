@@ -39,14 +39,14 @@ ENV PYTHONUNBUFFERED=1 \
     FACE_DETECTION_BACKEND=auto \
     MEDIAPIPE_FACE_MODEL_PATH=data/mediapipe_models/blaze_face_full_range.tflite
 
-# --- Dependencies (layer cache) ---
+# --- Dependencies (layer cache: requirements.txt copied before app code) ---
 COPY requirements.txt .
 
-# numpy<2 first — mediapipe must not upgrade torch/hsemotion stack to numpy 2.x
-RUN pip install "numpy>=1.24.0,<2.0.0" && \
-    pip install -r requirements.txt && \
-    pip uninstall -y opencv-contrib-python 2>/dev/null || true && \
-    pip install --force-reinstall --no-deps opencv-python-headless==4.10.0.84
+# Install numpy first so mediapipe and hsemotion both see the pinned version
+# before any of their own install-time checks run.
+# All versions are exact pins tested locally — do not add >= or < ranges here.
+RUN pip install numpy==1.26.4 && \
+    pip install -r requirements.txt
 
 # --- OpenCV import smoke test ---
 RUN python -c "import cv2; print('opencv', cv2.__version__)"
@@ -74,6 +74,12 @@ from transformers import pipeline; \
 print('Downloading animal ViT...'); \
 pipeline('image-classification', model='dima806/pets_facial_expression_detection', device='cpu'); \
 print('Animal ViT cached.')"
+
+RUN python -c "\
+from hsemotion.facial_emotions import HSEmotionRecognizer; \
+print('Downloading HSEmotion model...'); \
+HSEmotionRecognizer(model_name='enet_b0_8_best_vgaf', device='cpu'); \
+print('HSEmotion model cached.')"
 
 # --- Application ---
 COPY models/ models/

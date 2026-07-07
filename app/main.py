@@ -16,6 +16,7 @@ from app.config import get_settings
 from app.middleware.request_tracking import RequestTrackingMiddleware
 from app.routes.animal_emotion import router as animal_emotion_router
 from app.routes.audio import router as audio_router
+from app.routes.body import router as body_router
 from app.routes.feedback import router as feedback_router
 from app.routes.image import router as image_router
 from app.routes.sessions import router as sessions_router
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(animal_emotion_router)
     app.include_router(feedback_router)
     app.include_router(sessions_router)
+    app.include_router(body_router)
 
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -72,6 +74,23 @@ def create_app() -> FastAPI:
             warmup_hsemotion=settings.MODEL_WARMUP,
             load_animal=True,
         )
+
+        # Pre-initialise PostureDetector if body language is enabled so the
+        # first video frame is not delayed by MediaPipe model initialisation.
+        if settings.ENABLE_BODY_LANGUAGE:
+            from app.services.posture_service import PostureDetector
+            if PostureDetector.is_available():
+                import threading
+                t = threading.Thread(
+                    target=PostureDetector.instance,
+                    name="posture-bootstrap",
+                    daemon=True,
+                )
+                t.start()
+                logger.info("PostureDetector background init started")
+            else:
+                logger.warning("ENABLE_BODY_LANGUAGE=true but mediapipe.pose is not available")
+
         logger.info("🚀 Application startup complete (models loading in background)")
 
     # ------------------------------------------------------------------

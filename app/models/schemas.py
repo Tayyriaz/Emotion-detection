@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -12,6 +12,9 @@ class ImageEmotionResponse(BaseModel):
     emotions: Dict[str, float] = {}
     aus: Dict[str, float]
     backend: str
+    # Coaching fields — always Optional so existing callers are unaffected
+    reason: Optional[str] = None
+    suggestion: Optional[str] = None
 
 
 class AudioEmotionResponse(BaseModel):
@@ -30,6 +33,9 @@ class AudioEmotionResponse(BaseModel):
     key_phrases: list = []
     overall_vibe: str = ""
     explanation: str = ""
+    # Coaching fields — always Optional so existing callers are unaffected
+    reason: Optional[str] = None
+    suggestion: Optional[str] = None
 
 
 class AnimalEmotionResponse(BaseModel):
@@ -49,3 +55,6 @@ class AnimalEmotionResponse(BaseModel):
     roi_bbox: List[int] = []          # [x1, y1, x2, y2] crop used for ViT
     guidance: str = ""                # Pet-specific copy (not human harmony rules)
     low_confidence: bool = False
+    # Coaching fields — always Optional so existing callers are unaffected
+    reason: Optional[str] = None
+    suggestion: Optional[str] = None

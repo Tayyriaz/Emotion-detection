@@ -74,6 +74,18 @@ class Settings(BaseSettings):
     # Set ENABLE_FEEDBACK=false to disable the /feedback/calibration endpoint.
     ENABLE_FEEDBACK: bool = True
 
+    # Body Language Analysis (Phase 1: MediaPipe Pose posture detection)
+    # Default OFF — set ENABLE_BODY_LANGUAGE=true in .env to activate.
+    # Zero overhead when False: posture code is never called in video pipeline.
+    #
+    # IMPORTANT: mediapipe==0.10.35 (pinned in requirements.txt) exposes only
+    # the Tasks API (face detector .tflite).  The legacy solutions API
+    # (mp.solutions.pose) used by PostureDetector is NOT available in this
+    # version.  Do NOT set ENABLE_BODY_LANGUAGE=true in production until
+    # mediapipe is upgraded to a version that restores solutions.pose, or
+    # PostureDetector is rewritten to use the Tasks PoseLandmarker API.
+    ENABLE_BODY_LANGUAGE: bool = False
+
     # Session Manager — multi-participant emotion tracking
     # SPIKE_THRESHOLD: min per-dimension emotion delta (0–1) to flag a spike
     # SPIKE_MAX_WEIGHT: ceiling multiplier for a fully-spiked participant

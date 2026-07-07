@@ -11,6 +11,7 @@ from fastapi import APIRouter, File, UploadFile
 from fastapi import HTTPException, status
 
 from app.models.schemas import ImageEmotionResponse
+from app.services.coaching_tips import get_coaching_tips
 from app.services.image_emotion_service import analyze_image_emotion, analyze_image_emotion_debug
 from app.utils.logging import get_logger, get_request_id
 from app.utils.metrics import get_metrics
@@ -108,7 +109,10 @@ async def image_emotion(file: UploadFile = File(...)) -> ImageEmotionResponse:
                 f"[{request_id}] ⚠️ Image emotion analysis completed but no face detected | "
                 f"filename='{filename}' | file_size={file_size_mb:.2f}MB | processing_time={inference_time_ms:.1f}ms"
             )
-        
+
+        if result.success:
+            reason, suggestion = get_coaching_tips("image", result.emotion, result.confidence)
+            result = result.model_copy(update={"reason": reason or None, "suggestion": suggestion or None})
         return result
         
     except HTTPException:

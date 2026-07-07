@@ -12,6 +12,7 @@ from fastapi import APIRouter, File, UploadFile, HTTPException, status
 from app.config import get_settings
 from app.models.schemas import AudioEmotionResponse
 from app.services.audio_emotion_service import analyze_audio_file
+from app.services.coaching_tips import get_coaching_tips
 from app.utils.logging import get_logger, get_request_id
 from app.utils.metrics import get_metrics
 
@@ -137,6 +138,7 @@ async def audio_emotion_analyze(audio_file: UploadFile = File(..., alias="audio_
                 f"filename='{filename}' | file_size={file_size_mb:.2f}MB | processing_time={inference_time_ms:.1f}ms"
             )
         
+        _reason, _suggestion = get_coaching_tips("audio", emotion, confidence) if success else ("", "")
         return AudioEmotionResponse(
             success=success,
             emotion=emotion,
@@ -150,7 +152,9 @@ async def audio_emotion_analyze(audio_file: UploadFile = File(..., alias="audio_
             emotional_intensity=result.get("emotional_intensity", 0.0),
             key_phrases=result.get("key_phrases", []),
             overall_vibe=result.get("overall_vibe", ""),
-            explanation=result.get("explanation", "")
+            explanation=result.get("explanation", ""),
+            reason=_reason or None,
+            suggestion=_suggestion or None,
         )
         
     except HTTPException:
