@@ -170,3 +170,34 @@ def get_coaching_tips(
             reason = reason + _MED_CONF_NOTE
 
     return reason, suggestion
+
+
+def get_coaching_tips_for_face(
+    modality: str,
+    face_result: dict,
+    *,
+    raw_min_confidence: float = 0.38,
+) -> Tuple[str, str]:
+    """
+    Pick coaching tips from the best available emotion signal.
+
+    When the neutral-priority guard downgrades a strong raw label to neutral,
+    use the raw label for attunement tips so the client sees relevant guidance.
+    """
+    display = (face_result.get("emotion") or "neutral").lower()
+    display_conf = float(face_result.get("confidence") or 0.0)
+    emotions = face_result.get("emotions") or {}
+
+    raw = (face_result.get("raw_emotion") or "").lower()
+    raw_conf = face_result.get("raw_confidence")
+    if not raw and emotions:
+        raw, raw_conf = max(emotions.items(), key=lambda item: item[1])
+        raw = str(raw).lower()
+        raw_conf = float(raw_conf)
+    else:
+        raw = raw or display
+        raw_conf = float(raw_conf if raw_conf is not None else display_conf)
+
+    if raw != display and raw_conf >= raw_min_confidence:
+        return get_coaching_tips(modality, raw, raw_conf)
+    return get_coaching_tips(modality, display, display_conf)

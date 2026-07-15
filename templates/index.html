@@ -103,6 +103,8 @@
                                     <div class="result-value-large" id="imageConfidence">-</div>
                                 </div>
                             </div>
+                            <!-- Coaching Tips — directly under emotion/confidence -->
+                            <div id="imageCoachingTips" class="coaching-slot" style="display:none;"></div>
                             
                             <!-- Emotion Distribution Chart -->
                             <div class="chart-card" id="imageEmotionChartCard" style="display: none;">
@@ -118,8 +120,6 @@
 
                             <!-- Feedback -->
                             <div id="imageFeedbackRow" style="display:none; margin-top:10px;"></div>
-                            <!-- Coaching Tips -->
-                            <div id="imageCoachingTips" style="display:none;"></div>
                             
                             <!-- Empty State -->
                             <div class="empty-state-audio" id="imageEmptyState">
@@ -212,12 +212,16 @@
                                     <span class="confidence-label">This frame:</span>
                                     <span class="confidence-value" id="currentConfidence">—</span>
                                 </div>
+                                <!-- Attunement Tips — directly under emotion/confidence -->
+                                <div class="telemetry-section-label" id="videoAttunementLabel" style="display:none;">Attunement Tips</div>
+                                <div id="videoCoachingTips" class="coaching-slot" style="display:none;"></div>
+                                <div id="videoRawEmotionHint" class="video-raw-emotion-hint" style="display:none;" aria-live="polite"></div>
+                                <div id="videoReadingStatus" class="video-reading-status" aria-live="polite"></div>
                                 <!-- Feedback -->
                                 <div id="videoFeedbackRow" style="margin-top:8px;"></div>
-                                <!-- Posture Badge (visible only when ENABLE_BODY_LANGUAGE=true) -->
+                                <!-- Body Posture (Phase 1) -->
+                                <div class="telemetry-section-label" id="videoPostureLabel" style="display:none;">Body Posture</div>
                                 <div id="videoPostureRow" style="display:none;"></div>
-                                <!-- Coaching Tips -->
-                                <div id="videoCoachingTips" style="display:none;"></div>
                             </div>
                             
                             <!-- Emotion Timeline Chart -->
@@ -613,6 +617,8 @@
                                     <div class="result-value" id="audioEnergy">-</div>
                                 </div>
                             </div>
+                            <!-- Coaching Tips — directly under emotion/confidence -->
+                            <div id="audioCoachingTips" class="coaching-slot" style="display:none;"></div>
                             
                             <!-- Transcript -->
                             <div class="transcript-section" id="transcriptSection" style="display: none;">
@@ -653,8 +659,6 @@
 
                             <!-- Feedback -->
                             <div id="audioFeedbackRow" style="display:none; margin-top:10px;"></div>
-                            <!-- Coaching Tips -->
-                            <div id="audioCoachingTips" style="display:none;"></div>
 
                             <!-- Empty State -->
                             <div class="empty-state-audio" id="audioEmptyState">
@@ -719,6 +723,8 @@
                                     <div id="animalHeroEmoji" class="animal-hero-emoji">🐾</div>
                                     <div id="animalHeroLabel" class="animal-hero-label">—</div>
                                     <div id="animalHeroConf"  class="animal-hero-conf">Confidence: —</div>
+                                    <!-- Coaching Tips — directly under emotion/confidence -->
+                                    <div id="animalCoachingTips" class="coaching-slot" style="display:none;"></div>
                                     <p id="animalGuidanceText" class="animal-guidance-text" style="display:none;"></p>
                                     <div class="animal-conf-track">
                                         <div id="animalConfFill" class="animal-conf-fill"></div>
@@ -737,8 +743,6 @@
                                 </div>
                                 <!-- Feedback -->
                                 <div id="animalFeedbackRow" style="margin-top:10px;"></div>
-                                <!-- Coaching Tips -->
-                                <div id="animalCoachingTips" style="display:none;"></div>
                             </div>
                         </div>
                     </div>

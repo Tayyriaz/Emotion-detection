@@ -18,8 +18,10 @@ logger = get_logger(__name__)
 # High-arousal negatives that are often confused with neutral/tired faces.
 _NEGATIVE_HIGH_AROUSAL = frozenset({"anger", "fear", "disgust", "contempt"})
 # When top score is below this and neutral is within _NEUTRAL_AMBIGUITY_MARGIN, prefer neutral.
-_NEUTRAL_AMBIGUITY_CEILING = 0.70
-_NEUTRAL_AMBIGUITY_MARGIN = 0.10
+_NEUTRAL_AMBIGUITY_CEILING = 0.62
+_NEUTRAL_AMBIGUITY_MARGIN = 0.08
+# High-arousal labels need threshold + this delta (kept small to avoid over-neutralising)
+_HIGH_AROUSAL_EXTRA = 0.03
 
 
 def apply_neutral_priority_guard(
@@ -50,7 +52,7 @@ def apply_neutral_priority_guard(
         return "neutral", neutral_score
 
     # Guard 2: high-arousal labels need a slightly higher bar (fear/anger false positives)
-    if emotion in _NEGATIVE_HIGH_AROUSAL and top_score < threshold + 0.05:
+    if emotion in _NEGATIVE_HIGH_AROUSAL and top_score < threshold + _HIGH_AROUSAL_EXTRA:
         logger.debug(
             f"Neutral guard: weak high-arousal '{emotion}' ({top_score:.3f})"
         )
@@ -568,18 +570,30 @@ class HSEmotionDetector:
                 for name, score in zip(emotion_names, scores)
             }
             raw_confidence = float(scores[np.argmax(scores)])
+            raw_emotion = emotion_lower
             emotion_lower, confidence = apply_neutral_priority_guard(
                 emotion_lower,
                 raw_confidence,
                 emotions_dict,
                 self.neutral_confidence_threshold,
             )
+            if emotion_lower != raw_emotion:
+                logger.info(
+                    "Neutral guard applied: raw=%s (%.2f) -> display=%s (%.2f) bbox=%s",
+                    raw_emotion,
+                    raw_confidence,
+                    emotion_lower,
+                    confidence,
+                    face_bbox,
+                )
 
             return {
                 "face_detected": True,
                 "emotions": emotions_dict,
                 "emotion": emotion_lower,
                 "confidence": confidence,
+                "raw_emotion": raw_emotion,
+                "raw_confidence": raw_confidence,
                 "aus": {},
                 "face_bbox": list(face_bbox),
             }

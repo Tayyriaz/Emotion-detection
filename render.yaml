@@ -33,3 +33,23 @@ services:
         value: "120"
       - key: MEDIAPIPE_FACE_MODEL_PATH
         value: data/mediapipe_models/blaze_face_full_range.tflite
+      - key: MEDIAPIPE_POSE_MODEL_PATH
+        value: data/mediapipe_models/pose_landmarker_lite.task
+      - key: ENABLE_BODY_LANGUAGE
+        value: "true"
+      - key: POSTURE_FRAME_SKIP
+        value: "6"
+      - key: POSTURE_INFERENCE_MAX_WIDTH
+        value: "480"
+      - key: POSTURE_SMOOTHING_ALPHA
+        value: "0.35"
+      - key: POSTURE_LABEL_STABLE_FRAMES
+        value: "2"
+      - key: NEUTRAL_CONFIDENCE_THRESHOLD
+        value: "0.48"
+      - key: MEDIAPIPE_MIN_DETECTION_CONFIDENCE
+        value: "0.45"
+      - key: ENABLE_FEEDBACK
+        value: "true"
+      - key: ALLOW_EMOTION_INJECTION
+        value: "false"

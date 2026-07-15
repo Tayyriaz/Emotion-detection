@@ -33,10 +33,9 @@ class Settings(BaseSettings):
     EMOTION_MODEL_NAME: str = "enet_b0_8_best_vgaf"
 
     # Minimum softmax confidence required to accept a non-Neutral prediction.
-    # If the top emotion scores below this value the result is overridden to "neutral",
-    # preventing ambiguous / tired faces from being mis-labelled as Angry/Fear/Sad.
-    # Tune between 0.45 (looser) and 0.65 (stricter). Default 0.55 reduces false stress flags.
-    NEUTRAL_CONFIDENCE_THRESHOLD: float = 0.55
+    # 0.48 balances false stress flags vs showing real expressions (client feedback).
+    # Tune between 0.42 (looser) and 0.55 (stricter).
+    NEUTRAL_CONFIDENCE_THRESHOLD: float = 0.48
 
     # Logging / limits
     LOG_LEVEL: str = "INFO"
@@ -74,17 +73,30 @@ class Settings(BaseSettings):
     # Set ENABLE_FEEDBACK=false to disable the /feedback/calibration endpoint.
     ENABLE_FEEDBACK: bool = True
 
-    # Body Language Analysis (Phase 1: MediaPipe Pose posture detection)
+    # Body Language Analysis (Phase 1: MediaPipe Tasks PoseLandmarker)
     # Default OFF — set ENABLE_BODY_LANGUAGE=true in .env to activate.
     # Zero overhead when False: posture code is never called in video pipeline.
-    #
-    # IMPORTANT: mediapipe==0.10.35 (pinned in requirements.txt) exposes only
-    # the Tasks API (face detector .tflite).  The legacy solutions API
-    # (mp.solutions.pose) used by PostureDetector is NOT available in this
-    # version.  Do NOT set ENABLE_BODY_LANGUAGE=true in production until
-    # mediapipe is upgraded to a version that restores solutions.pose, or
-    # PostureDetector is rewritten to use the Tasks PoseLandmarker API.
     ENABLE_BODY_LANGUAGE: bool = False
+
+    # MediaPipe Pose Landmarker (Tasks API — same stack as face detection on 0.10.35)
+    MEDIAPIPE_POSE_MODEL_PATH: str = "data/mediapipe_models/pose_landmarker_lite.task"
+    MEDIAPIPE_POSE_MODEL_URL: str = (
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+        "pose_landmarker_lite/float16/1/pose_landmarker_lite.task"
+    )
+    POSTURE_INFERENCE_MAX_WIDTH: int = 480       # downscale before inference (CPU savings)
+    POSTURE_FRAME_SKIP: int = 6                  # run every N processed emotion frames
+    POSTURE_SMOOTHING_ALPHA: float = 0.35        # EMA factor (lower = smoother, more lag)
+    POSTURE_LABEL_STABLE_FRAMES: int = 2         # consecutive frames before label switch
+    POSTURE_MIN_LANDMARK_VISIBILITY: float = 0.50
+    POSTURE_MIN_DETECTION_CONFIDENCE: float = 0.50
+    POSTURE_MIN_PRESENCE_CONFIDENCE: float = 0.50
+    POSTURE_MIN_TRACKING_CONFIDENCE: float = 0.50
+    POSTURE_SLOUCH_RATIO: float = 0.32           # torso_h / shoulder_w below → slouch
+    POSTURE_HEAD_DROP_RATIO: float = 0.55        # nose below shoulders (normalised)
+    POSTURE_LEAN_DELTA: float = 0.05             # shoulder vs hip mid-line offset
+    POSTURE_CROSS_MARGIN: float = 0.025          # wrist cross body centre margin
+    POSTURE_ARMS_RAISED_MARGIN: float = 0.06     # wrist above shoulder line (normalised y)
 
     # Session Manager — multi-participant emotion tracking
     # SPIKE_THRESHOLD: min per-dimension emotion delta (0–1) to flag a spike
@@ -105,7 +117,7 @@ class Settings(BaseSettings):
 
     # Face detection: auto prefers MediaPipe when installed, else OpenCV Haar
     FACE_DETECTION_BACKEND: Literal["auto", "mediapipe", "opencv"] = "auto"
-    MEDIAPIPE_MIN_DETECTION_CONFIDENCE: float = 0.5
+    MEDIAPIPE_MIN_DETECTION_CONFIDENCE: float = 0.45
     FACE_BBOX_PADDING_RATIO: float = 0.10
     MEDIAPIPE_FACE_MODEL_PATH: str = "data/mediapipe_models/blaze_face_full_range.tflite"
     MEDIAPIPE_FACE_MODEL_URL: str = (

@@ -89,7 +89,7 @@ def create_app() -> FastAPI:
                 t.start()
                 logger.info("PostureDetector background init started")
             else:
-                logger.warning("ENABLE_BODY_LANGUAGE=true but mediapipe.pose is not available")
+                logger.warning("ENABLE_BODY_LANGUAGE=true but MediaPipe Tasks Pose is not available")
 
         logger.info("🚀 Application startup complete (models loading in background)")
 
@@ -228,6 +228,34 @@ def create_app() -> FastAPI:
                 "loaded": False,
                 "model": settings.ANIMAL_MODEL_NAME,
             }
+
+        # --- Posture (optional) ---
+        if settings.ENABLE_BODY_LANGUAGE:
+            from app.services.posture_service import PostureDetector
+
+            if not PostureDetector.is_available():
+                report["models"]["posture"] = {
+                    "status": "unhealthy",
+                    "available": False,
+                    "loaded": False,
+                    "message": "mediapipe tasks vision not installed",
+                }
+            else:
+                try:
+                    PostureDetector.instance()
+                    report["models"]["posture"] = {
+                        "status": "healthy",
+                        "available": True,
+                        "loaded": True,
+                        "backend": PostureDetector.backend_name(),
+                    }
+                except Exception as exc:
+                    report["models"]["posture"] = {
+                        "status": "unhealthy",
+                        "available": True,
+                        "loaded": False,
+                        "error": str(exc),
+                    }
 
         statuses = [m.get("status") for m in report["models"].values()]
         if all(s == "healthy" for s in statuses):

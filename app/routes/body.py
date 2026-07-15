@@ -68,7 +68,7 @@ async def body_status() -> dict:
     return {
         "enabled":   settings.ENABLE_BODY_LANGUAGE,
         "available": PostureDetector.is_available(),
-        "backend":   "mediapipe-pose-lite",
+        "backend":   PostureDetector.backend_name(),
     }
 
 
@@ -138,5 +138,6 @@ async def analyze_posture(file: UploadFile = File(...)) -> PostureResponse:
         posture_confidence=result["posture_confidence"],
         signals=result["signals"],
         landmarks_detected=result["landmarks_detected"],
+        backend=result.get("backend", PostureDetector.backend_name()),
         processing_time_ms=elapsed_ms,
     )

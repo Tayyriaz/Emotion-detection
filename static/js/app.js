@@ -41,6 +41,13 @@
         resumeFromStorage: false,
         _lastCoachingEmotion: null,   // for coaching tip change-detection
         _lastPostureLabel: null,      // for posture badge change-detection
+        bodyLanguageEnabled: false,   // from GET /body/status
+        _lastCoachingSignature: null, // reason+suggestion change detection
+        lastResultAt: 0,              // timestamp of last backend emotion response
+        framesSent: 0,                // frames dispatched to backend (diagnostics)
+        framesReceived: 0,            // emotion responses received (diagnostics)
+        waitingWatchdogId: null,      // timer for "no readings" UI alert
+        wsReady: false,               // WebSocket open flag
     };
 
     // ------------------------------------------------------------------ //
@@ -306,6 +313,7 @@
         restoreVideoSessionFromStorage();
         initImageTab();
         initializeHealthAndModels();
+        syncBodyLanguageStatus();
         checkCameras();
         setupSessionHistoryResume();
 
@@ -642,6 +650,9 @@
         // Show results
         $('#imageResults').style.display = 'grid';
         $('#imageEmptyState').style.display = 'none';
+
+        // Coaching tips — immediately under emotion/confidence (before charts)
+        renderCoachingTips($('#imageCoachingTips'), data.reason || null, data.suggestion || null);
         
         // Update emotion chart with all emotion scores
         if (imageEmotionChart) {
@@ -709,9 +720,6 @@
                 predicted_confidence: data.confidence || null,
             }));
         }
-
-        // Coaching tips
-        renderCoachingTips($('#imageCoachingTips'), data.reason || null, data.suggestion || null);
 
         console.log('✅ Image results displayed successfully');
     }
@@ -1450,11 +1458,22 @@
 
         // Connect WebSocket (is_pov flag comes from the checkbox)
         try {
+            setVideoReadingStatus('Connecting to analysis server…', 'waiting');
             await connectVideoWebSocket();
             console.log('✅ WebSocket connected for Zoom screen analysis');
         } catch (wsErr) {
             console.warn('⚠️ WebSocket failed, using HTTP fallback:', wsErr);
+            setVideoReadingStatus('Using HTTP fallback — connecting…', 'waiting');
         }
+
+        try {
+            await waitForVideoReady();
+        } catch (e) {
+            console.warn('[video] Screen stream not ready yet:', e.message);
+        }
+
+        setVideoReadingStatus('Waiting for camera readings…', 'waiting');
+        startVideoWaitingWatchdog();
 
         // Update UI
         _setVideoUIActive('screen');
@@ -1510,6 +1529,7 @@
             
             if (videoState.useBrowserWebcam) {
                 await startBrowserWebcam();
+                await waitForVideoReady();
             }
             
             videoState.isRecording = true;
@@ -1529,14 +1549,20 @@
                 clearSessionStorage();
             }
             
+            setVideoReadingStatus('Connecting to analysis server…', 'waiting');
+
             // Connect WebSocket for real-time analysis (better for Render)
             try {
                 await connectVideoWebSocket();
                 console.log('✅ WebSocket connected, starting frame capture');
             } catch (error) {
                 console.warn('⚠️ WebSocket connection failed, using HTTP fallback:', error);
-                // Continue with HTTP fallback
+                setVideoReadingStatus('Using HTTP fallback — connecting…', 'waiting');
             }
+
+            setVideoReadingStatus('Waiting for camera readings…', 'waiting');
+            startVideoWaitingWatchdog();
+            syncBodyLanguageStatus();
             
             // Update UI
             _setVideoUIActive('webcam');
@@ -1578,6 +1604,7 @@
 
     function stopVideoRecording() {
         videoState.isRecording = false;
+        clearVideoWaitingWatchdog();
 
         // Stop polling
         if (videoState.pollId) {
@@ -1662,6 +1689,94 @@
      *
      * Intentionally does NOT touch session history, feedback modal, or audio/image tabs.
      */
+    /**
+     * Wait until the <video> element has decoded enough frames to capture.
+     * Prevents sending blank frames before the camera stream is ready.
+     */
+    function waitForVideoReady(timeoutMs = 8000) {
+        return new Promise((resolve, reject) => {
+            const video = $('#videoStream');
+            if (!video) {
+                reject(new Error('Video element not found'));
+                return;
+            }
+            if (video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+                resolve();
+                return;
+            }
+            const deadline = Date.now() + timeoutMs;
+            const tick = () => {
+                if (video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+                    resolve();
+                    return;
+                }
+                if (Date.now() >= deadline) {
+                    reject(new Error('Camera stream not ready in time'));
+                    return;
+                }
+                requestAnimationFrame(tick);
+            };
+            video.addEventListener('loadeddata', () => resolve(), { once: true });
+            video.addEventListener('error', () => reject(new Error('Video element error')), { once: true });
+            requestAnimationFrame(tick);
+        });
+    }
+
+    /** Show pipeline status under the live emotion readout (video tab). */
+    function setVideoReadingStatus(message, tone = 'waiting') {
+        const el = $('#videoReadingStatus');
+        if (!el) return;
+        el.textContent = message || '';
+        el.className = 'video-reading-status';
+        if (message) el.classList.add(`is-${tone}`);
+    }
+
+    function clearVideoWaitingWatchdog() {
+        if (videoState.waitingWatchdogId) {
+            clearInterval(videoState.waitingWatchdogId);
+            videoState.waitingWatchdogId = null;
+        }
+    }
+
+    /** If no backend response arrives within a few seconds, surface a visible status. */
+    function startVideoWaitingWatchdog() {
+        clearVideoWaitingWatchdog();
+        videoState.lastResultAt = Date.now();
+        videoState.waitingWatchdogId = setInterval(() => {
+            if (!videoState.isRecording) return;
+            const elapsed = Date.now() - (videoState.lastResultAt || 0);
+            if (elapsed < 4000) return;
+
+            const video = $('#videoStream');
+            if (!video || video.readyState < video.HAVE_ENOUGH_DATA) {
+                setVideoReadingStatus('Waiting for camera…', 'waiting');
+                console.warn('[video] Camera not ready — readyState=', video?.readyState);
+                return;
+            }
+            if (!videoState.wsReady) {
+                setVideoReadingStatus('Connecting to analysis server…', 'waiting');
+                console.warn('[video] WebSocket not open — framesSent=', videoState.framesSent);
+                return;
+            }
+            if (videoState.framesSent === 0) {
+                setVideoReadingStatus('Waiting for camera frames…', 'waiting');
+                return;
+            }
+            setVideoReadingStatus(
+                'Waiting for readings… adjust lighting and face the camera.',
+                'waiting'
+            );
+            console.warn(
+                '[video] No readings for',
+                Math.round(elapsed / 1000) + 's',
+                '| sent=',
+                videoState.framesSent,
+                'received=',
+                videoState.framesReceived
+            );
+        }, 1000);
+    }
+
     function resetVideoUI() {
         // ── Live readouts ──────────────────────────────────────────────
         const emotionEl = $('#currentEmotion');
@@ -1698,16 +1813,29 @@
         // ── Coaching tips + posture badge ──────────────────────────────
         const coachEl = $('#videoCoachingTips');
         if (coachEl) { coachEl.style.display = 'none'; coachEl.innerHTML = ''; }
+        const attuneLabel = $('#videoAttunementLabel');
+        if (attuneLabel) attuneLabel.style.display = 'none';
+        const rawHint = $('#videoRawEmotionHint');
+        if (rawHint) { rawHint.style.display = 'none'; rawHint.textContent = ''; }
         const postureEl = $('#videoPostureRow');
         if (postureEl) { postureEl.style.display = 'none'; postureEl.innerHTML = ''; }
+        const postureLabel = $('#videoPostureLabel');
+        if (postureLabel && !videoState.bodyLanguageEnabled) postureLabel.style.display = 'none';
         const fbRow = $('#videoFeedbackRow');
         if (fbRow) fbRow.innerHTML = '';
+        setVideoReadingStatus('', 'waiting');
 
         // ── Face overlay state (prevents stale boxes on next start) ───
         videoState.lastFaces = null;
         videoState.lastBbox  = null;
         videoState._lastCoachingEmotion = null;
         videoState._lastPostureLabel    = null;
+        videoState._lastCoachingSignature = null;
+        videoState.lastResultAt = 0;
+        videoState.framesSent = 0;
+        videoState.framesReceived = 0;
+        videoState.wsReady = false;
+        clearVideoWaitingWatchdog();
 
         // ── Charts — clear data arrays and redraw blank ────────────────
         if (emotionChart) {
@@ -1869,6 +1997,7 @@
             
             videoState.ws.onopen = () => {
                 console.log('✅ WebSocket connected successfully');
+                videoState.wsReady = true;
                 clearTimeout(connectionTimeout);
                 resolve();
             };
@@ -1884,9 +2013,30 @@
                         }
                         return;
                     }
+
+                    if (data.type === 'error') {
+                        console.error('[video] Backend error:', data.message || data.error);
+                        setVideoReadingStatus(data.message || data.error || 'Analysis error', 'error');
+                        return;
+                    }
+
+                    if (data.type === 'status') {
+                        videoState.lastResultAt = Date.now();
+                        if (data.status === 'no_face') {
+                            setVideoReadingStatus(
+                                data.message || 'No face detected — center your face in the frame.',
+                                'waiting'
+                            );
+                        } else if (data.status === 'processing') {
+                            setVideoReadingStatus('Processing frames…', 'waiting');
+                        }
+                        return;
+                    }
                     
                     // Handle emotion updates
                     if (data.type === 'emotion') {
+                        videoState.framesReceived += 1;
+                        videoState.lastResultAt = Date.now();
                         const video = $('#videoStream');
                         const videoWidth = video?.videoWidth || 640;
                         const videoHeight = video?.videoHeight || 480;
@@ -1899,12 +2049,14 @@
             
             videoState.ws.onerror = (error) => {
                 console.error('❌ WebSocket error:', error);
+                videoState.wsReady = false;
                 clearTimeout(connectionTimeout);
                 reject(error);
             };
             
             videoState.ws.onclose = () => {
                 console.log('🔌 WebSocket closed');
+                videoState.wsReady = false;
                 // Try to reconnect if still recording
                 if (videoState.isRecording) {
                     setTimeout(() => {
@@ -2013,12 +2165,17 @@
     async function captureAndAnalyzeFrame() {
         const video = $('#videoStream');
 
-        if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) return;
+        if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) {
+            if (videoState.isRecording && videoState.framesSent === 0) {
+                setVideoReadingStatus('Waiting for camera…', 'waiting');
+            }
+            return;
+        }
 
         // Preserve aspect ratio. Rear camera: higher res + quality (faces often farther/smaller).
         const isRear = videoState.facingMode === 'environment';
-        const CAPTURE_W = isRear ? 480 : 320;
-        const JPEG_QUALITY = isRear ? 0.85 : 0.72;
+        const CAPTURE_W = isRear ? 480 : 400;
+        const JPEG_QUALITY = isRear ? 0.85 : 0.78;
         const srcW = video.videoWidth  || 640;
         const srcH = video.videoHeight || 480;
         const CAPTURE_H = Math.max(1, Math.round(CAPTURE_W * srcH / srcW));
@@ -2033,6 +2190,7 @@
         tempCtx.drawImage(video, 0, 0, CAPTURE_W, CAPTURE_H);
 
         const imageData = tempCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
+        videoState.framesSent += 1;
         
         // Send frame via WebSocket if connected, otherwise fallback to HTTP POST
         if (videoState.ws && videoState.ws.readyState === WebSocket.OPEN) {
@@ -2043,12 +2201,21 @@
                 }));
             } catch (error) {
                 console.error('❌ WebSocket send error:', error);
+                setVideoReadingStatus('Connection lost — retrying…', 'error');
                 // Fallback to HTTP POST
                 const videoWidth = video.videoWidth || 640;
                 const videoHeight = video.videoHeight || 480;
                 sendFrameViaHTTP(imageData, videoWidth, videoHeight);
             }
         } else {
+            if (videoState.framesSent <= 3 || videoState.framesSent % 20 === 0) {
+                console.warn(
+                    '[video] WebSocket not open — using HTTP fallback (readyState=',
+                    videoState.ws?.readyState,
+                    ')'
+                );
+            }
+            setVideoReadingStatus('Connecting to analysis server…', 'waiting');
             // Fallback to HTTP POST if WebSocket not available
             const videoWidth = video.videoWidth || 640;
             const videoHeight = video.videoHeight || 480;
@@ -2066,10 +2233,16 @@
             
             if (response.ok) {
                 const data = await response.json();
+                videoState.framesReceived += 1;
+                videoState.lastResultAt = Date.now();
                 handleVideoResult(data, videoWidth, videoHeight);
+            } else {
+                console.error('[video] HTTP frame analysis failed:', response.status);
+                setVideoReadingStatus('Analysis request failed — retrying…', 'error');
             }
         } catch (error) {
             console.error('❌ Frame analysis error:', error);
+            setVideoReadingStatus('Cannot reach analysis server', 'error');
         }
     }
 
@@ -2119,6 +2292,13 @@
         if (!success || !faceDetected) {
             $('#currentEmotion').textContent    = 'No Face';
             $('#currentConfidence').textContent = '—';
+            setVideoReadingStatus(
+                'No face detected — center your face and check lighting.',
+                'waiting'
+            );
+            if (videoState.bodyLanguageEnabled && data.posture_label) {
+                renderPostureBadge($('#videoPostureRow'), data.posture_label, data.posture_confidence);
+            }
             // Still update room state even when no face is detected
             const room = data.room;
             if (room) {
@@ -2159,6 +2339,25 @@
             rawEmotionLabel,
             rawConfidence
         );
+        setVideoReadingStatus('Live readings active', 'ok');
+
+        // Optional: show when display emotion differs from model's top raw class
+        const rawHintEl = $('#videoRawEmotionHint');
+        const rawKey = (data.raw_emotion || '').toLowerCase();
+        const displayKey = rawEmotionKey;
+        if (
+            rawHintEl &&
+            rawKey &&
+            rawKey !== displayKey &&
+            (Number(data.raw_confidence) || 0) >= 0.38
+        ) {
+            rawHintEl.style.display = '';
+            rawHintEl.textContent =
+                `Model also detected ${normalizeEmotion(rawKey)} (${Math.round((Number(data.raw_confidence) || 0) * 100)}%) — shown as ${smoothedEmotionLabel} for stability.`;
+        } else if (rawHintEl) {
+            rawHintEl.style.display = 'none';
+            rawHintEl.textContent = '';
+        }
 
         // Disagree button — updates every detected emotion change
         const videoFbRow = $('#videoFeedbackRow');
@@ -2172,18 +2371,23 @@
             }));
         }
 
-        // Posture badge — update only when posture label changes
-        if (data.posture_label && data.posture_label !== 'no_pose') {
-            if (data.posture_label !== videoState._lastPostureLabel) {
-                videoState._lastPostureLabel = data.posture_label;
-                renderPostureBadge($('#videoPostureRow'), data.posture_label, data.posture_confidence);
+        // Posture badge — update when label changes (includes upright)
+        if (videoState.bodyLanguageEnabled) {
+            const postureLabel = data.posture_label || 'no_pose';
+            if (postureLabel !== videoState._lastPostureLabel) {
+                videoState._lastPostureLabel = postureLabel;
+                renderPostureBadge($('#videoPostureRow'), postureLabel, data.posture_confidence);
             }
         }
 
-        // Coaching tips — update only when emotion key changed to avoid DOM thrash
-        if (smoothedEmotionKey !== videoState._lastCoachingEmotion) {
+        // Coaching tips — update when content changes (not only emotion key)
+        const coachingSig = `${data.reason || ''}|${data.suggestion || ''}`;
+        if (coachingSig !== videoState._lastCoachingSignature) {
+            videoState._lastCoachingSignature = coachingSig;
             videoState._lastCoachingEmotion = smoothedEmotionKey;
-            renderCoachingTips($('#videoCoachingTips'), data.reason || null, data.suggestion || null);
+            renderCoachingTips($('#videoCoachingTips'), data.reason || null, data.suggestion || null, {
+                sectionLabel: $('#videoAttunementLabel'),
+            });
         }
 
         const auCountEl = $('#auCount');
@@ -2651,6 +2855,9 @@
         if ($('#audioEnergy')) {
             $('#audioEnergy').textContent = data.energy_level || 'N/A';
         }
+
+        // Coaching tips — immediately under emotion/confidence (before transcript)
+        renderCoachingTips($('#audioCoachingTips'), data.reason || null, data.suggestion || null);
         
         // Update transcript
         const transcriptSection = $('#transcriptSection');
@@ -2716,9 +2923,6 @@
                 predicted_confidence: data.confidence || null,
             }));
         }
-
-        // Coaching tips
-        renderCoachingTips($('#audioCoachingTips'), data.reason || null, data.suggestion || null);
 
         console.log('Audio results displayed successfully');
     }
@@ -3062,8 +3266,12 @@
         leaning_left:  { label: 'Leaning Left',   icon: '&#8592;' },     // ←
         leaning_right: { label: 'Leaning Right',  icon: '&#8594;' },     // →
         crossed_arms:  { label: 'Crossed Arms',   icon: '&#9940;' },     // 🚫
+        arms_raised:   { label: 'Arms Raised',    icon: '&#9995;' },     // ✋
         no_pose:       { label: 'No Pose',        icon: '&#128100;' },   // 👤
     };
+
+    const _POSTURE_TEST_HINT =
+        'To test: cross arms · lean left/right · slump forward · raise hands above shoulders.';
 
     /**
      * Render a posture badge into a container element.
@@ -3075,19 +3283,47 @@
      */
     function renderPostureBadge(containerEl, postureLabel, confidence) {
         if (!containerEl) return;
-        if (!postureLabel || postureLabel === 'no_pose') {
+        const sectionLabel = $('#videoPostureLabel');
+        if (!videoState.bodyLanguageEnabled) {
             containerEl.style.display = 'none';
             containerEl.innerHTML = '';
+            if (sectionLabel) sectionLabel.style.display = 'none';
+            return;
+        }
+        if (sectionLabel) sectionLabel.style.display = '';
+
+        if (!postureLabel || postureLabel === 'no_pose') {
+            containerEl.style.display = '';
+            containerEl.innerHTML =
+                '<span class="posture-scanning-hint">Scanning posture — step back so shoulders &amp; hips are visible.</span>';
             return;
         }
         const meta  = _POSTURE_META[postureLabel] || { label: postureLabel, icon: '&#128100;' };
         const pct   = confidence != null ? ` · ${(confidence * 100).toFixed(0)}%` : '';
+        const hint  = postureLabel === 'upright'
+            ? `<div class="posture-test-hint">${_POSTURE_TEST_HINT}</div>`
+            : '';
         containerEl.style.display = '';
         containerEl.innerHTML = `
             <span class="posture-badge" data-label="${postureLabel}">
                 <span class="posture-badge-icon">${meta.icon}</span>
                 Posture: ${meta.label}${pct}
-            </span>`;
+            </span>${hint}`;
+    }
+
+    async function syncBodyLanguageStatus() {
+        try {
+            const res = await fetch('/body/status');
+            if (!res.ok) return;
+            const data = await res.json();
+            videoState.bodyLanguageEnabled = !!(data.enabled && data.available);
+            const postureLabel = $('#videoPostureLabel');
+            if (postureLabel) {
+                postureLabel.style.display = videoState.bodyLanguageEnabled ? '' : 'none';
+            }
+        } catch (err) {
+            console.warn('Body language status check failed:', err);
+        }
     }
 
     /**
@@ -3098,13 +3334,16 @@
      * @param {string|null}      reason       — why this emotion was detected
      * @param {string|null}      suggestion   — actionable improvement tip
      */
-    function renderCoachingTips(containerEl, reason, suggestion) {
+    function renderCoachingTips(containerEl, reason, suggestion, opts = {}) {
         if (!containerEl) return;
+        const sectionLabel = opts.sectionLabel || null;
         if (!reason && !suggestion) {
             containerEl.style.display = 'none';
             containerEl.innerHTML = '';
+            if (sectionLabel) sectionLabel.style.display = 'none';
             return;
         }
+        if (sectionLabel) sectionLabel.style.display = '';
         containerEl.style.display = '';
         const reasonHtml = reason
             ? `<div class="action-reason">
@@ -3554,6 +3793,9 @@ macOS Setup Help:
             const heroConf  = $('#animalHeroConf');  if (heroConf)  heroConf.textContent  = `Confidence: ${pct}%`;
             const confFill  = $('#animalConfFill');  if (confFill)  confFill.style.width  = `${pct}%`;
 
+            // Coaching tips — immediately under emotion/confidence
+            renderCoachingTips($('#animalCoachingTips'), data.reason || null, data.suggestion || null);
+
             const distList = $('#animalDistList');
             if (distList) {
                 const sorted = Object.entries(data.all_emotions || {}).sort((a,b) => b[1]-a[1]);
@@ -3593,9 +3835,6 @@ macOS Setup Help:
                     predicted_confidence: data.confidence_score || null,
                 }));
             }
-
-            // Coaching tips
-            renderCoachingTips($('#animalCoachingTips'), data.reason || null, data.suggestion || null);
         }
 
         function clearResult() {

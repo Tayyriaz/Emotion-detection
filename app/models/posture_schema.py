@@ -18,5 +18,5 @@ class PostureResponse(BaseModel):
     posture_confidence: float = 0.0          # 0.0–1.0 (based on landmark visibility)
     signals: List[str] = []                  # all detected signals (may be >1)
     landmarks_detected: bool = False
-    backend: str = "mediapipe-pose-lite"
+    backend: str = "mediapipe-tasks-pose-lite"
     processing_time_ms: float = 0.0

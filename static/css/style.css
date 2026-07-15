@@ -1393,6 +1393,12 @@ body {
     color: #93c5fd;
 }
 
+.posture-badge[data-label="arms_raised"] {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.45);
+    color: #93c5fd;
+}
+
 .posture-badge[data-label="upright"] {
     background: rgba(16, 185, 129, 0.08);
     border-color: rgba(16, 185, 129, 0.25);
@@ -1400,11 +1406,75 @@ body {
 }
 
 /* ── Coaching Tips (scoped, used in all 4 modality result cards) ── */
+.coaching-slot {
+    margin-top: 10px;
+    margin-bottom: 4px;
+}
+
 .action-coaching {
-    margin-top: 12px;
+    margin-top: 0;
     border-radius: 10px;
     overflow: hidden;
     border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+/* Video pipeline status (waiting / no-face / error) */
+.video-reading-status {
+    margin-top: 8px;
+    font-size: 0.82rem;
+    color: #94a3b8;
+    min-height: 1.2em;
+    line-height: 1.4;
+}
+
+.video-reading-status.is-waiting {
+    color: #fbbf24;
+}
+
+.video-reading-status.is-error {
+    color: #f87171;
+}
+
+.video-reading-status.is-ok {
+    color: #6ee7b7;
+}
+
+.telemetry-section-label {
+    margin-top: 12px;
+    margin-bottom: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+.video-raw-emotion-hint {
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: #cbd5e1;
+    line-height: 1.4;
+}
+
+.posture-scanning-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    background: rgba(148, 163, 184, 0.08);
+    border: 1px dashed rgba(148, 163, 184, 0.25);
+    font-size: 0.78rem;
+    color: #94a3b8;
+}
+
+.posture-test-hint {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    color: #64748b;
+    line-height: 1.45;
+    max-width: 420px;
 }
 
 .action-reason {

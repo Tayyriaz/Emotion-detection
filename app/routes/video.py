@@ -38,7 +38,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, HTTPExcept
 from pydantic import BaseModel
 
 from app.config import get_settings
-from app.services.coaching_tips import get_coaching_tips
+from app.services.coaching_tips import get_coaching_tips_for_face
 from app.services.insight_generator import get_social_guidance
 from app.services.models.hsemotion_detector import HSEmotionDetector
 from app.services.session_manager import SessionManager
@@ -129,12 +129,14 @@ async def video_emotion_websocket(
     # Per-connection state
     # ------------------------------------------------------------------ #
     frame_count = 0
+    processed_frame_count = 0
     last_emotion = None
     last_confidence = 0.0
     last_ping_time = time.time()
+    _NO_FACE_STATUS_INTERVAL = 8  # notify client every N processed frames when no face
     # Posture state — only populated when ENABLE_BODY_LANGUAGE=true
     last_posture_result: dict | None = None
-    _POSTURE_SKIP = 30   # run posture analysis every 30 emotion-frames (~3s at 10fps)
+    last_posture_label_sent: str | None = None
 
     def is_connected() -> bool:
         try:
@@ -276,6 +278,14 @@ async def video_emotion_websocket(
                 if frame_count % settings.VIDEO_FRAME_SKIP != 0:
                     continue
 
+                processed_frame_count += 1
+                if processed_frame_count == 1:
+                    await safe_send({
+                        "type": "status",
+                        "status": "processing",
+                        "message": "Processing frames…",
+                    })
+
                 # -------------------------------------------------- #
                 # Multi-face emotion inference
                 # analyze_faces() returns one dict per detected face,
@@ -288,16 +298,31 @@ async def video_emotion_websocket(
 
                 inference_ms = round((time.time() - start_time) * 1000, 1)
 
+                if not face_results:
+                    logger.info(
+                        "Video frame: no face detected | user=%s session=%s processed=%s backend=%s",
+                        user_id,
+                        session_id,
+                        processed_frame_count,
+                        detector.active_face_backend(),
+                    )
+
                 # ── Posture analysis (optional, behind feature flag) ── #
-                # Runs every _POSTURE_SKIP emotion-frames to minimise overhead.
-                # Failure is silently caught so it never breaks the emotion path.
-                if settings.ENABLE_BODY_LANGUAGE and frame_count % _POSTURE_SKIP == 0:
+                # Sampled every POSTURE_FRAME_SKIP processed frames to limit CPU.
+                if (
+                    settings.ENABLE_BODY_LANGUAGE
+                    and processed_frame_count % settings.POSTURE_FRAME_SKIP == 0
+                ):
                     try:
                         from app.services.posture_service import PostureDetector
+
                         if PostureDetector.is_available():
-                            last_posture_result = PostureDetector.instance().analyze(image)
+                            last_posture_result = PostureDetector.instance().analyze(
+                                image,
+                                session_key=session_id,
+                            )
                     except Exception as _pe:
-                        logger.debug(f"Posture analysis skipped: {_pe}")
+                        logger.debug("Posture analysis skipped: %s", _pe)
 
                 # -------------------------------------------------- #
                 # Session manager update — one participant per face
@@ -366,6 +391,10 @@ async def video_emotion_websocket(
                         "face_bbox": f["face_bbox"],
                         "emotion": f["emotion"],
                         "confidence": round(f["confidence"], 3),
+                        "raw_emotion": f.get("raw_emotion", f["emotion"]),
+                        "raw_confidence": round(
+                            float(f.get("raw_confidence", f["confidence"])), 3
+                        ),
                         "emotions": {k: round(v, 3) for k, v in f["emotions"].items()},
                         "is_pov": effective_pov and f["face_index"] == 0,
                     }
@@ -377,7 +406,22 @@ async def video_emotion_websocket(
                 primary = face_results[0] if face_results else None
                 primary_emotion = primary["emotion"] if primary else "neutral"
                 primary_confidence = primary["confidence"] if primary else 0.0
+                primary_raw_emotion = (
+                    primary.get("raw_emotion", primary_emotion) if primary else None
+                )
+                primary_raw_confidence = (
+                    float(primary.get("raw_confidence", primary_confidence))
+                    if primary
+                    else 0.0
+                )
                 primary_bbox = primary["face_bbox"] if primary else None
+
+                posture_changed = False
+                if last_posture_result:
+                    pl = last_posture_result.get("posture_label")
+                    if pl and pl != last_posture_label_sent:
+                        posture_changed = True
+                        last_posture_label_sent = pl
 
                 # -------------------------------------------------- #
                 # Send response — always send when faces changed or
@@ -385,22 +429,43 @@ async def video_emotion_websocket(
                 # -------------------------------------------------- #
                 emotion_changed = primary_emotion != last_emotion
                 confidence_delta = abs(primary_confidence - last_confidence)
-                should_send = (
-                    any_face_detected
-                    and (
-                        emotion_changed
+                if any_face_detected:
+                    should_send = (
+                        last_emotion is None
+                        or emotion_changed
                         or confidence_delta > settings.VIDEO_MIN_CONFIDENCE_DELTA
                         or last_spike_event is not None
+                        or posture_changed
                     )
-                ) or (not any_face_detected and last_emotion is not None)
+                else:
+                    should_send = (
+                        last_emotion is not None
+                        or processed_frame_count == 1
+                        or processed_frame_count % _NO_FACE_STATUS_INTERVAL == 0
+                    )
+
+                if not should_send:
+                    logger.debug(
+                        "Video frame suppressed | user=%s face=%s emotion=%s conf=%.3f",
+                        user_id,
+                        any_face_detected,
+                        primary_emotion,
+                        primary_confidence,
+                    )
+                elif not any_face_detected:
+                    await safe_send({
+                        "type": "status",
+                        "status": "no_face",
+                        "message": "No face detected — center your face in the frame.",
+                    })
 
                 if should_send:
                     last_emotion = primary_emotion if any_face_detected else None
                     last_confidence = primary_confidence
 
                     _v_reason, _v_suggestion = (
-                        get_coaching_tips("video", primary_emotion, primary_confidence)
-                        if any_face_detected and primary_emotion
+                        get_coaching_tips_for_face("video", primary)
+                        if any_face_detected and primary
                         else ("", "")
                     )
                     sent = await safe_send({
@@ -409,6 +474,8 @@ async def video_emotion_websocket(
                         # --- Legacy single-face fields (backward compat) ---
                         "emotion": primary_emotion,
                         "confidence": round(primary_confidence, 3),
+                        "raw_emotion": primary_raw_emotion,
+                        "raw_confidence": round(primary_raw_confidence, 3),
                         "emotions": (
                             {k: round(v, 3) for k, v in primary["emotions"].items()}
                             if primary else {}
@@ -468,6 +535,12 @@ async def video_emotion_websocket(
         # Cleanup: remove participant; close session when empty
         # ---------------------------------------------------------- #
         try:
+            if settings.ENABLE_BODY_LANGUAGE:
+                from app.services.posture_service import PostureDetector
+
+                if PostureDetector.is_available():
+                    PostureDetector.instance().reset_session(session_id)
+
             # Persist room state before tearing down participants (Issue #2).
             if emotion_session.list_participants():
                 _session_mgr.checkpoint_session(
