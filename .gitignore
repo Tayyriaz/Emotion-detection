@@ -41,3 +41,10 @@ htmlcov/
 data/sessions_backup.json
 data/sessions_backup.json.tmp
 data/mediapipe_models/
+build/
+dist/
+*.zip
+launcher.py
+emotion_analyzer.spec
+build_exe.bat
+CLIENT_README.txt
