@@ -1520,6 +1520,8 @@
                 videoState.resumeFromStorage = false;
                 $('#sessionRestoreBanner')?.remove();
             } else {
+                // Fresh session — wipe all UI and chart state before first frame arrives
+                resetVideoUI();
                 videoState.activeSessionId = createSessionId();
                 videoState.timeline = [];
                 videoState.emotionHistory = [];
@@ -1627,6 +1629,19 @@
         $('#videoStatus').textContent = 'Video: Idle';
         $('#videoStatus').className   = 'badge badge-idle';
 
+        // Cancel any pending timers that could write to the UI after stop
+        if (_spikeCornerTimer) {
+            clearTimeout(_spikeCornerTimer);
+            _spikeCornerTimer = null;
+        }
+        if (_persistSessionTimer) {
+            clearTimeout(_persistSessionTimer);
+            _persistSessionTimer = null;
+        }
+
+        // Reset all live readouts and charts to neutral/blank state
+        resetVideoUI();
+
         clearSessionStorage();
         videoState.activeSessionId = null;
         videoState.resumeFromStorage = false;
@@ -1636,6 +1651,84 @@
 
         // Refresh session history panel (new sessions may have been created)
         if (window.SessionHistory) window.SessionHistory.refresh();
+    }
+
+    /**
+     * Reset every video-tab UI element to a neutral "idle" state.
+     *
+     * Called in two places:
+     *  1. stopVideoRecording()  — clears stale data immediately on stop.
+     *  2. startVideoRecording() — ensures a fresh slate before new session data arrives.
+     *
+     * Intentionally does NOT touch session history, feedback modal, or audio/image tabs.
+     */
+    function resetVideoUI() {
+        // ── Live readouts ──────────────────────────────────────────────
+        const emotionEl = $('#currentEmotion');
+        if (emotionEl) emotionEl.textContent = '—';
+        const confEl = $('#currentConfidence');
+        if (confEl) confEl.textContent = '—';
+
+        // ── Harmony meter ──────────────────────────────────────────────
+        const pctEl   = $('#harmonyPctVal');
+        const labelEl = $('#harmonyStateLabel');
+        const ringEl  = $('#harmonyRingFill');
+        const partEl  = $('#riParticipantsRow');
+        if (pctEl)   pctEl.textContent   = '—';
+        if (labelEl) labelEl.textContent = '—';
+        if (ringEl) {
+            ringEl.style.strokeDasharray = `0 ${RING_CIRCUMFERENCE}`;
+            ringEl.setAttribute('class', 'ring-fill');
+        }
+        if (partEl) partEl.textContent = '';
+
+        // ── Social guidance ────────────────────────────────────────────
+        updateGuidanceBox('');
+
+        // ── Spike alerts — cancel timer and hide both elements ─────────
+        if (_spikeCornerTimer) {
+            clearTimeout(_spikeCornerTimer);
+            _spikeCornerTimer = null;
+        }
+        const inlineEl = $('#spikeInlineAlert');
+        const cornerEl = $('#spikeCornerAlert');
+        if (inlineEl) inlineEl.classList.remove('visible');
+        if (cornerEl) cornerEl.classList.remove('visible', 'hiding');
+
+        // ── Coaching tips + posture badge ──────────────────────────────
+        const coachEl = $('#videoCoachingTips');
+        if (coachEl) { coachEl.style.display = 'none'; coachEl.innerHTML = ''; }
+        const postureEl = $('#videoPostureRow');
+        if (postureEl) { postureEl.style.display = 'none'; postureEl.innerHTML = ''; }
+        const fbRow = $('#videoFeedbackRow');
+        if (fbRow) fbRow.innerHTML = '';
+
+        // ── Face overlay state (prevents stale boxes on next start) ───
+        videoState.lastFaces = null;
+        videoState.lastBbox  = null;
+        videoState._lastCoachingEmotion = null;
+        videoState._lastPostureLabel    = null;
+
+        // ── Charts — clear data arrays and redraw blank ────────────────
+        if (emotionChart) {
+            emotionChart.data.labels = [];
+            emotionChart.data.datasets[0].data = [];
+            emotionChart.update('none');
+        }
+        if (emotionBars) {
+            emotionBars.data.datasets.forEach(d => { d.data = [0]; });
+            emotionBars.update('none');
+        }
+        if (emotionMultiChart) {
+            emotionMultiChart.data.labels = [];
+            emotionMultiChart.data.datasets.forEach(d => { d.data = []; });
+            emotionMultiChart.update('none');
+        }
+        if (roomComparisonChart) {
+            roomComparisonChart.data.labels = [];
+            roomComparisonChart.data.datasets.forEach(d => { d.data = []; });
+            roomComparisonChart.update('none');
+        }
     }
 
     function pauseVideoRecording() {
