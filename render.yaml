@@ -48,7 +48,15 @@ services:
       - key: NEUTRAL_CONFIDENCE_THRESHOLD
         value: "0.48"
       - key: MEDIAPIPE_MIN_DETECTION_CONFIDENCE
-        value: "0.45"
+        value: "0.40"
+      - key: ENABLE_FACE_LIGHTING_NORMALIZE
+        value: "true"
+      - key: ENABLE_FACE_QUALITY_GATE
+        value: "true"
+      - key: ENABLE_LIVENESS_CHECK
+        value: "true"
+      - key: ENABLE_FACE_DETECTION_RETRY
+        value: "true"
       - key: ENABLE_FEEDBACK
         value: "true"
       - key: ALLOW_EMOTION_INJECTION

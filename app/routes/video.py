@@ -39,6 +39,7 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.services.coaching_tips import get_coaching_tips_for_face
+from app.services.liveness_service import get_liveness_tracker
 from app.services.insight_generator import get_social_guidance
 from app.services.models.hsemotion_detector import HSEmotionDetector
 from app.services.session_manager import SessionManager
@@ -137,6 +138,8 @@ async def video_emotion_websocket(
     # Posture state — only populated when ENABLE_BODY_LANGUAGE=true
     last_posture_result: dict | None = None
     last_posture_label_sent: str | None = None
+    liveness_tracker = get_liveness_tracker(session_id) if settings.ENABLE_LIVENESS_CHECK else None
+    last_liveness_status: str | None = None
 
     def is_connected() -> bool:
         try:
@@ -298,6 +301,17 @@ async def video_emotion_websocket(
 
                 inference_ms = round((time.time() - start_time) * 1000, 1)
 
+                liveness_payload = None
+                primary_quality = None
+                if face_results:
+                    primary_quality = face_results[0].get("face_quality")
+                    if liveness_tracker is not None:
+                        bbox = face_results[0]["face_bbox"]
+                        x1, y1, x2, y2 = (int(v) for v in bbox)
+                        crop_bgr = image[y1:y2, x1:x2]
+                        if crop_bgr.size > 0:
+                            liveness_payload = liveness_tracker.update(crop_bgr)
+
                 if not face_results:
                     logger.info(
                         "Video frame: no face detected | user=%s session=%s processed=%s backend=%s",
@@ -397,6 +411,7 @@ async def video_emotion_websocket(
                         ),
                         "emotions": {k: round(v, 3) for k, v in f["emotions"].items()},
                         "is_pov": effective_pov and f["face_index"] == 0,
+                        "face_quality": f.get("face_quality"),
                     }
                     for f in face_results
                 ]
@@ -423,6 +438,13 @@ async def video_emotion_websocket(
                         posture_changed = True
                         last_posture_label_sent = pl
 
+                liveness_changed = (
+                    liveness_payload is not None
+                    and liveness_payload.get("status") != last_liveness_status
+                )
+                if liveness_changed:
+                    last_liveness_status = liveness_payload.get("status")
+
                 # -------------------------------------------------- #
                 # Send response — always send when faces changed or
                 # spike occurred; suppress identical quiet frames.
@@ -436,6 +458,7 @@ async def video_emotion_websocket(
                         or confidence_delta > settings.VIDEO_MIN_CONFIDENCE_DELTA
                         or last_spike_event is not None
                         or posture_changed
+                        or liveness_changed
                     )
                 else:
                     should_send = (
@@ -506,6 +529,9 @@ async def video_emotion_websocket(
                             last_posture_result["posture_confidence"]
                             if last_posture_result else None
                         ),
+                        # --- Face quality + liveness (Phase 2 robustness) ---
+                        "face_quality": primary_quality,
+                        "liveness": liveness_payload,
                     })
                     if not sent:
                         break

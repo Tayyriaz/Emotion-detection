@@ -531,7 +531,23 @@ class HSEmotionDetector:
             if mp_boxes:
                 return mp_boxes
 
-        return self._detect_all_faces_haar(image)
+        haar_boxes = self._detect_all_faces_haar(image)
+        if haar_boxes:
+            return haar_boxes
+
+        # Second pass — CLAHE/gamma boost helps dim or back-lit scenes
+        settings = get_settings()
+        if settings.ENABLE_FACE_DETECTION_RETRY:
+            from app.services.face_preprocess import enhance_frame_for_detection
+
+            enhanced = enhance_frame_for_detection(image)
+            if self._prefer_mediapipe():
+                mp_boxes = self._detect_all_faces_mediapipe(enhanced)
+                if mp_boxes:
+                    return mp_boxes
+            return self._detect_all_faces_haar(enhanced)
+
+        return []
 
     def _detect_face_simple(
         self, image: np.ndarray, *, target: str = "human"
@@ -546,7 +562,10 @@ class HSEmotionDetector:
         return max(faces, key=self._bbox_area)
 
     def _run_inference_on_crop(
-        self, face_img: np.ndarray, face_bbox: tuple
+        self,
+        face_img: np.ndarray,
+        face_bbox: tuple,
+        frame_shape: Optional[tuple] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Run HSEmotion inference on a single pre-cropped face (RGB).
@@ -558,6 +577,19 @@ class HSEmotionDetector:
         """
         if face_img.size == 0:
             return None
+        settings = get_settings()
+        quality: Optional[Dict[str, Any]] = None
+
+        if settings.ENABLE_FACE_QUALITY_GATE and frame_shape is not None:
+            from app.services.face_quality import assess_face_quality
+
+            quality = assess_face_quality(face_img, face_bbox, frame_shape)
+
+        if settings.ENABLE_FACE_LIGHTING_NORMALIZE:
+            from app.services.face_preprocess import normalize_face_lighting
+
+            face_img = normalize_face_lighting(face_img)
+
         try:
             emotion_label, scores = self.recognizer.predict_emotions(
                 face_img, logits=False
@@ -596,6 +628,7 @@ class HSEmotionDetector:
                 "raw_confidence": raw_confidence,
                 "aus": {},
                 "face_bbox": list(face_bbox),
+                "face_quality": quality,
             }
         except Exception as exc:
             logger.error(f"HSEmotion inference failed: {exc}", exc_info=True)
@@ -626,7 +659,9 @@ class HSEmotionDetector:
 
         x1, y1, x2, y2 = face_bbox
         face_img = image_rgb[y1:y2, x1:x2]
-        result = self._run_inference_on_crop(face_img, face_bbox)
+        result = self._run_inference_on_crop(
+            face_img, face_bbox, frame_shape=image_rgb.shape
+        )
         if result is None:
             return self._no_face_result(face_bbox)
 
@@ -674,7 +709,9 @@ class HSEmotionDetector:
         for idx, bbox in enumerate(bboxes):
             x1, y1, x2, y2 = bbox
             face_img = image_rgb[y1:y2, x1:x2]
-            result = self._run_inference_on_crop(face_img, bbox)
+            result = self._run_inference_on_crop(
+                face_img, bbox, frame_shape=image_rgb.shape
+            )
             if result is None:
                 continue
             result["face_index"] = idx

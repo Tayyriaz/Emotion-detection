@@ -122,6 +122,8 @@ def analyze_image_emotion(image_bytes: bytes) -> ImageEmotionResponse:
         emotions=emotions,  # All emotion scores for visualization
         aus={},  # HSEmotion doesn't provide AU scores
         backend="hsemotion",
+        face_quality=result.get("face_quality"),
+        quality_hints=(result.get("face_quality") or {}).get("hints"),
     )
 
 

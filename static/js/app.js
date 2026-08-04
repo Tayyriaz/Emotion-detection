@@ -653,6 +653,7 @@
 
         // Coaching tips — immediately under emotion/confidence (before charts)
         renderCoachingTips($('#imageCoachingTips'), data.reason || null, data.suggestion || null);
+        renderFaceQualityHint($('#imageQualityHint'), data.face_quality, data.quality_hints);
         
         // Update emotion chart with all emotion scores
         if (imageEmotionChart) {
@@ -1817,6 +1818,10 @@
         if (attuneLabel) attuneLabel.style.display = 'none';
         const rawHint = $('#videoRawEmotionHint');
         if (rawHint) { rawHint.style.display = 'none'; rawHint.textContent = ''; }
+        const livenessEl = $('#videoLivenessStatus');
+        if (livenessEl) { livenessEl.style.display = 'none'; livenessEl.innerHTML = ''; livenessEl.className = 'video-liveness-status'; }
+        const qualityEl = $('#videoQualityHint');
+        if (qualityEl) { qualityEl.style.display = 'none'; qualityEl.textContent = ''; }
         const postureEl = $('#videoPostureRow');
         if (postureEl) { postureEl.style.display = 'none'; postureEl.innerHTML = ''; }
         const postureLabel = $('#videoPostureLabel');
@@ -2340,6 +2345,9 @@
             rawConfidence
         );
         setVideoReadingStatus('Live readings active', 'ok');
+
+        renderLivenessStatus($('#videoLivenessStatus'), data.liveness);
+        renderFaceQualityHint($('#videoQualityHint'), data.face_quality);
 
         // Optional: show when display emotion differs from model's top raw class
         const rawHintEl = $('#videoRawEmotionHint');
@@ -3324,6 +3332,46 @@
         } catch (err) {
             console.warn('Body language status check failed:', err);
         }
+    }
+
+    /**
+     * Show face-quality guidance (lighting, angle, blur).
+     */
+    function renderFaceQualityHint(containerEl, faceQuality, fallbackHints) {
+        if (!containerEl) return;
+        const hints = (faceQuality && faceQuality.hints) || fallbackHints || [];
+        const score = faceQuality && faceQuality.score != null ? Number(faceQuality.score) : null;
+        const unreliable = faceQuality && faceQuality.reliable === false;
+
+        if (!hints.length && score == null) {
+            containerEl.style.display = 'none';
+            containerEl.textContent = '';
+            return;
+        }
+
+        const pct = score != null ? ` (${Math.round(score * 100)}% capture quality)` : '';
+        const prefix = unreliable ? '⚠️ ' : 'ℹ️ ';
+        containerEl.style.display = '';
+        containerEl.textContent = prefix + hints[0] + pct;
+    }
+
+    /**
+     * Liveness badge for live video — pass / checking / fail.
+     */
+    function renderLivenessStatus(containerEl, liveness) {
+        if (!containerEl) return;
+        if (!liveness || !liveness.status) {
+            containerEl.style.display = 'none';
+            containerEl.innerHTML = '';
+            containerEl.className = 'video-liveness-status';
+            return;
+        }
+        const status = liveness.status;
+        const msg = liveness.message || '';
+        containerEl.style.display = '';
+        containerEl.className = `video-liveness-status liveness-${status}`;
+        const icon = status === 'pass' ? '✅' : status === 'fail' ? '⛔' : '🔄';
+        containerEl.textContent = `${icon} ${msg}`;
     }
 
     /**

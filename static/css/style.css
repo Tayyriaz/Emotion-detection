@@ -1439,6 +1439,33 @@ body {
     color: #6ee7b7;
 }
 
+.video-liveness-status {
+    margin-top: 6px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: #94a3b8;
+}
+
+.video-liveness-status.liveness-pass {
+    color: #6ee7b7;
+}
+
+.video-liveness-status.liveness-fail {
+    color: #f87171;
+}
+
+.video-liveness-status.liveness-checking {
+    color: #fbbf24;
+}
+
+.video-quality-hint {
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: #cbd5e1;
+    line-height: 1.45;
+    max-width: 420px;
+}
+
 .telemetry-section-label {
     margin-top: 12px;
     margin-bottom: 4px;

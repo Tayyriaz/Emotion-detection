@@ -98,6 +98,22 @@ class Settings(BaseSettings):
     POSTURE_CROSS_MARGIN: float = 0.025          # wrist cross body centre margin
     POSTURE_ARMS_RAISED_MARGIN: float = 0.06     # wrist above shoulder line (normalised y)
 
+    # Face robustness — lighting, angles, liveness (client Phase 2 feedback)
+    ENABLE_FACE_LIGHTING_NORMALIZE: bool = True   # CLAHE on face crop before HSEmotion
+    ENABLE_FACE_QUALITY_GATE: bool = True         # score lighting/sharpness/angle
+    ENABLE_LIVENESS_CHECK: bool = True              # video-only motion liveness
+    ENABLE_FACE_DETECTION_RETRY: bool = True        # second pass with enhanced frame
+    FACE_MIN_BRIGHTNESS: float = 45.0               # 0–255 mean gray on face crop
+    FACE_MAX_BRIGHTNESS: float = 215.0
+    FACE_MIN_SHARPNESS: float = 45.0                # Laplacian variance
+    FACE_MIN_SIZE_RATIO: float = 0.06               # face area / frame area
+    FACE_MAX_CENTER_OFFSET: float = 0.42            # 0–1 from frame centre
+    FACE_MAX_ASPECT_DEV: float = 0.55               # bbox aspect deviation from frontal
+    FACE_QUALITY_MIN_RELIABLE: float = 0.45         # below → warn in UI
+    LIVENESS_MIN_MOTION_SCORE: float = 0.012        # frame-to-frame face motion
+    LIVENESS_FRAMES_REQUIRED: int = 6               # frames before pass
+    LIVENESS_STATIC_FAIL_FRAMES: int = 14           # static → likely photo
+
     # Session Manager — multi-participant emotion tracking
     # SPIKE_THRESHOLD: min per-dimension emotion delta (0–1) to flag a spike
     # SPIKE_MAX_WEIGHT: ceiling multiplier for a fully-spiked participant
@@ -117,7 +133,7 @@ class Settings(BaseSettings):
 
     # Face detection: auto prefers MediaPipe when installed, else OpenCV Haar
     FACE_DETECTION_BACKEND: Literal["auto", "mediapipe", "opencv"] = "auto"
-    MEDIAPIPE_MIN_DETECTION_CONFIDENCE: float = 0.45
+    MEDIAPIPE_MIN_DETECTION_CONFIDENCE: float = 0.40
     FACE_BBOX_PADDING_RATIO: float = 0.10
     MEDIAPIPE_FACE_MODEL_PATH: str = "data/mediapipe_models/blaze_face_full_range.tflite"
     MEDIAPIPE_FACE_MODEL_URL: str = (

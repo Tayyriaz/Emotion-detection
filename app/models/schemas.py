@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -15,6 +15,8 @@ class ImageEmotionResponse(BaseModel):
     # Coaching fields — always Optional so existing callers are unaffected
     reason: Optional[str] = None
     suggestion: Optional[str] = None
+    face_quality: Optional[Dict[str, Any]] = None
+    quality_hints: Optional[List[str]] = None
 
 
 class AudioEmotionResponse(BaseModel):
